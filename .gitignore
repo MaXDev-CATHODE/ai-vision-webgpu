@@ -22,3 +22,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# SDD artifacts (local only)
+specs/
+plan.md
+tasks.md
+.specify/
+.agent/
+.agents/
+scratch/
