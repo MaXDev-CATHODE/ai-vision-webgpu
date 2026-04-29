@@ -173,9 +173,10 @@ self.addEventListener('message', async (event) => {
       
       const bitmap = data.image;
       
-      // Optimization: Downsample image for faster processing on CPU/Mobile
-      // Model yolos-tiny works on small resolution anyway.
-      const MAX_DIM = isMobile ? 480 : 640;
+      // Optimization: yolos-tiny native resolution is 224x224.
+      // Scaling down to 224px in worker is MUCH faster than sending 480px and letting
+      // Transformers.js resize it on CPU.
+      const MAX_DIM = isMobile ? 224 : 320;
       let targetWidth = bitmap.width;
       let targetHeight = bitmap.height;
       
@@ -199,20 +200,27 @@ self.addEventListener('message', async (event) => {
 
       let image;
       try {
-        image = await (RawImage as any).read(imageData);
-      } catch (readErr) {
+        // Direct creation is faster than async read for small images
         image = new RawImage(imageData.data, imageData.width, imageData.height, 4);
+      } catch (readErr) {
+        image = await (RawImage as any).read(imageData);
       }
 
       const output = await detector(image, {
-        threshold: data.threshold || 0.5, // Default to 0.5 for better accuracy
+        threshold: data.threshold || 0.5,
         percentage: true,
       });
 
-      // Stricter NMS for mobile
-      const filtered = nms(output, 0.35);
+      // Report actual device if it changed or for diagnostics
+      if (detector.device !== PipelineSingleton.instance.device) {
+          console.log('Actual pipeline device:', detector.device);
+      }
+
+      // Stricter NMS
+      const filtered = nms(output, 0.3);
 
       self.postMessage({ type: 'detect_result', data: filtered });
+
       
     } catch (err: any) {
       console.error('v3 Detection Error:', err);
