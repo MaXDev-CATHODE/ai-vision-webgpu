@@ -20,21 +20,22 @@ if (!env.backends) (env as any).backends = {};
 if (!env.backends.onnx) (env.backends as any).onnx = {};
 if (!env.backends.onnx.wasm) (env.backends.onnx as any).wasm = {};
 
-// Use CDN for WASM binaries to ensure they are found regardless of bundling
-(env.backends.onnx.wasm as any).wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
-
 // Detect mobile for specific optimizations
 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 if (isMobile) {
-    console.log('Mobile device detected, applying WASM optimizations...');
+    console.log('Mobile device detected, applying WASM compatibility fixes...');
+    // Disable multithreading and SIMD on mobile to avoid dynamic module fetch errors (.mjs)
+    // and requirements for COOP/COEP headers.
     (env.backends.onnx.wasm as any).numThreads = 1;
+    (env.backends.onnx.wasm as any).simd = false;
     (env.backends.onnx.wasm as any).proxy = false;
 }
 
 console.log('Current Transformers.js Env:', {
     backends: env.backends,
     allowRemoteModels: env.allowRemoteModels,
-    useBrowserCache: env.useBrowserCache
+    useBrowserCache: env.useBrowserCache,
+    isMobile
 });
 
 class PipelineSingleton {
@@ -62,7 +63,7 @@ class PipelineSingleton {
       }
 
       try {
-        console.log('Initializing with WASM fallback...');
+        console.log('Initializing with WASM fallback (SIMD/Threads optimized)...');
         this.instance = await pipeline(this.task as any, this.model, {
           progress_callback,
           device: 'wasm', 
@@ -72,40 +73,30 @@ class PipelineSingleton {
       } catch (err: any) {
         console.error('WASM fallback failed:', err);
         
-        try {
-            console.log('FINAL FALLBACK: Initializing with CPU...');
-            this.instance = await pipeline(this.task as any, this.model, {
-                progress_callback,
-                device: 'cpu',
-            });
-            console.log('Success: CPU backend');
-            return this.instance;
-        } catch (cpuErr: any) {
-            console.error('CPU fallback failed:', cpuErr);
-            
-            // Last resort: retry without cache
-            if (env.useBrowserCache) {
-                console.warn('RETRY: Initializing without Browser Cache...');
-                env.useBrowserCache = false;
-                try {
-                    this.instance = await pipeline(this.task as any, this.model, {
-                        progress_callback,
-                    });
-                    console.log('Success after disabling cache');
-                    return this.instance;
-                } catch (retryErr: any) {
-                    console.error('Critical failure after all attempts:', retryErr);
-                    throw retryErr;
-                }
-            } else {
-                throw cpuErr;
+        // Final retry: disable cache entirely
+        if (env.useBrowserCache) {
+            console.warn('FINAL RETRY: Initializing without Browser Cache...');
+            env.useBrowserCache = false;
+            try {
+                this.instance = await pipeline(this.task as any, this.model, {
+                    progress_callback,
+                    device: 'wasm',
+                });
+                console.log('Success after disabling cache');
+                return this.instance;
+            } catch (retryErr: any) {
+                console.error('Critical failure after all attempts:', retryErr);
+                throw retryErr;
             }
+        } else {
+            throw err;
         }
       }
     }
     return this.instance;
   }
 }
+
 
 
 
