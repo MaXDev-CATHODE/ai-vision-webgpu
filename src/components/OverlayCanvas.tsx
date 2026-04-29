@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useVisionStore } from '../store/useVisionStore';
+import { AIWorkerManager } from '../utils/aiWorkerManager';
 
 interface Detection {
   label: string;
@@ -32,15 +33,15 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
 
   // Inicjalizacja Workerów
   useEffect(() => {
-    // Worker AI
-    const aiWorker = new Worker(new URL('../workers/ai.worker.ts', import.meta.url), { type: 'module' });
+    // Worker AI z manadżera (pre-loaded)
+    const aiWorker = AIWorkerManager.getAIWorker();
     aiWorkerRef.current = aiWorker;
 
-    // Worker Skanera (QR/Barcode)
-    const scannerWorker = new Worker(new URL('../workers/scanner.worker.ts', import.meta.url), { type: 'module' });
+    // Worker Skanera z manadżera (pre-loaded)
+    const scannerWorker = AIWorkerManager.getScannerWorker();
     scannerWorkerRef.current = scannerWorker;
 
-    aiWorker.onmessage = (e) => {
+    const handleAIWorkerMessage = (e: MessageEvent) => {
       const { type, data } = e.data;
       
       // Zawsze zwalniamy blokadę przy wynikach/błędach, niezależnie od trybu
@@ -72,7 +73,7 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
       }
     };
 
-    scannerWorker.onmessage = (e) => {
+    const handleScannerWorkerMessage = (e: MessageEvent) => {
       const { type, data } = e.data;
       
       if (type === 'scan_result' || type === 'error') {
@@ -112,12 +113,14 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
       setStatus('error', String(err));
     };
 
-    aiWorker.postMessage({ type: 'load_model' });
-    scannerWorker.postMessage({ type: 'init' });
+    // Nasłuchuj tylko na eventy
+    aiWorker.addEventListener('message', handleAIWorkerMessage);
+    scannerWorker.addEventListener('message', handleScannerWorkerMessage);
 
+    // Czyszczenie samych listenerów, NIE terminowanie workerów!
     return () => {
-      aiWorker.terminate();
-      scannerWorker.terminate();
+      aiWorker.removeEventListener('message', handleAIWorkerMessage);
+      scannerWorker.removeEventListener('message', handleScannerWorkerMessage);
     };
   }, [setStatus, setProgress, mode, setMetrics, setScanResults]);
 

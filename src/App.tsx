@@ -1,9 +1,16 @@
+import { useEffect } from 'react';
 import { CameraFeed } from './components/CameraFeed';
 import { ControlPanel } from './components/ControlPanel';
 import { StatsOverlay } from './components/StatsOverlay';
 import { useVisionStore } from './store/useVisionStore';
+import { AIWorkerManager } from './utils/aiWorkerManager';
 
 function App() {
+  useEffect(() => {
+    // T004: Asynchroniczne pobieranie wag od razu po załadowaniu głównego komponentu
+    AIWorkerManager.preloadModels();
+  }, []);
+
   const toggleCamera = useVisionStore((state) => state.toggleCamera);
   const isCameraActive = useVisionStore((state) => state.isCameraActive);
   const isFullscreen = useVisionStore((state) => state.isFullscreen);

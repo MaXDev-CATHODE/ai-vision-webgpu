@@ -1,4 +1,5 @@
 import { pipeline, env, RawImage } from '@huggingface/transformers';
+import { AI_CONFIG } from '../utils/aiConfig';
 
 // Diagnostics for Mobile Debugging
 console.log('AI Worker Start Diagnostics:', {
@@ -39,8 +40,8 @@ console.log('Current Transformers.js Env:', {
 });
 
 class PipelineSingleton {
-  static task = 'object-detection';
-  static model = 'Xenova/yolos-tiny';
+  static task = AI_CONFIG.task;
+  static model = AI_CONFIG.model;
   static instance: any = null;
 
   static async getInstance(progress_callback?: (progress: any) => void) {
@@ -173,10 +174,9 @@ self.addEventListener('message', async (event) => {
       
       const bitmap = data.image;
       
-      // Optimization: yolos-tiny native resolution is 224x224.
-      // Scaling down to 224px in worker is MUCH faster than sending 480px and letting
-      // Transformers.js resize it on CPU.
-      const MAX_DIM = isMobile ? 224 : 320;
+      // Optimization: yolov8n native resolution is 640x640.
+      // Scaling down to 640px (or 320px on mobile) in worker is faster than letting Transformers.js do it on CPU.
+      const MAX_DIM = isMobile ? 320 : 640;
       let targetWidth = bitmap.width;
       let targetHeight = bitmap.height;
       
@@ -207,7 +207,7 @@ self.addEventListener('message', async (event) => {
       }
 
       const output = await detector(image, {
-        threshold: data.threshold || 0.5,
+        threshold: data.threshold || 0.6, // Zwiększony threshold aby wyeliminować halucynacje
         percentage: true,
       });
 
