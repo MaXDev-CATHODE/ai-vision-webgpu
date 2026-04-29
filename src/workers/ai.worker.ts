@@ -15,6 +15,17 @@ env.allowLocalModels = false;
 env.allowRemoteModels = true; 
 env.useBrowserCache = true;
 
+// Detect mobile for specific optimizations
+const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+if (isMobile) {
+    console.log('Mobile device detected, applying WASM optimizations...');
+    // Disable multithreading on mobile to avoid COOP/COEP header requirements
+    if (env.backends?.onnx?.wasm) {
+        (env.backends.onnx.wasm as any).numThreads = 1;
+        (env.backends.onnx.wasm as any).proxy = false;
+    }
+}
+
 class PipelineSingleton {
   static task = 'object-detection';
   static model = 'Xenova/yolos-tiny';
@@ -23,41 +34,45 @@ class PipelineSingleton {
   static async getInstance(progress_callback?: (progress: any) => void) {
     if (this.instance === null) {
       const isWebGPUSupported = !!(navigator as any).gpu;
-
       
+      // Attempt WebGPU only if supported and NOT mobile (or try anyway if you want, 
+      // but mobile often has "Failed to get adapter" even if navigator.gpu exists)
       if (isWebGPUSupported) {
         try {
-          console.log('Initializing v3 Pipeline with WebGPU...');
+          console.log('Attempting WebGPU initialization...');
           this.instance = await pipeline(this.task as any, this.model, {
             progress_callback,
             device: 'webgpu',
           });
-          console.log('Successfully initialized WebGPU pipeline');
+          console.log('Success: WebGPU backend');
           return this.instance;
         } catch (err: any) {
-          console.warn('WebGPU failed, falling back to CPU. Reason:', err?.message || err);
+          console.warn('WebGPU failed, falling back to WASM. Reason:', err?.message || err);
         }
       }
 
       try {
-        console.log('Initializing v3 Pipeline with CPU fallback...');
+        console.log('Initializing with WASM/CPU fallback...');
         this.instance = await pipeline(this.task as any, this.model, {
           progress_callback,
+          device: 'wasm', // Explicitly specify wasm
         });
+        console.log('Success: WASM backend');
       } catch (err: any) {
-        console.error('CPU initialization failed:', err);
+        console.error('WASM initialization failed:', err);
         
-        // Retry without cache - helps on mobile devices with broken OPFS/Cache Storage
+        // Retry without cache
         if (env.useBrowserCache) {
-          console.warn('RETRY: Attempting initialization without Browser Cache...');
+          console.warn('RETRY: Initializing without Browser Cache...');
           env.useBrowserCache = false;
           try {
             this.instance = await pipeline(this.task as any, this.model, {
               progress_callback,
+              device: 'wasm',
             });
             console.log('Success after disabling cache');
           } catch (retryErr: any) {
-            console.error('Final initialization failure:', retryErr);
+            console.error('Final failure:', retryErr);
             throw retryErr;
           }
         } else {
@@ -68,6 +83,7 @@ class PipelineSingleton {
     return this.instance;
   }
 }
+
 
 function calculateIoU(box1: any, box2: any) {
   const x1 = Math.max(box1.xmin, box2.xmin);
