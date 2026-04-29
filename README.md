@@ -13,11 +13,12 @@ Eksperymentalna aplikacja typu **Serverless AI**, która demonstruje potęgę no
 
 ## 🚀 Kluczowe Funkcje
 
-- **Detekcja w czasie rzeczywistym:** Wykrywanie ponad 80 klas obiektów (ludzie, telefony, laptopy, zwierzęta) na żywo z kamery.
-- **WebGPU Inference:** Najwyższa wydajność dzięki bezpośredniemu dostępowi do rdzeni GPU użytkownika.
+- **Detekcja w czasie rzeczywistym:** Wykrywanie ponad 80 klas obiektów (ludzie, telefony, laptopy, zwierzęta) na żywo z kamery z ultra-niskim opóźnieniem.
+- **YOLOv8 Nano Inference:** Wykorzystanie modelu YOLOv8, światowego lidera prędkości, dla płynności klasy Real-Time.
+- **WebGPU Acceleration:** Bezpośrednie wykorzystanie mocy karty graficznej (GPU) dla błyskawicznych obliczeń.
+- **Zero-Copy Image Transfer:** Wykorzystanie obiektów `ImageBitmap` oraz `Transferables` do przesyłania obrazu między wątkami bez obciążania pamięci RAM.
 - **Bezpieczeństwo:** Przetwarzanie obrazu odbywa się lokalnie — klatki z kamery nigdy nie opuszczają Twojej przeglądarki.
-- **Progressive Model Loading:** Model AI (ok. 40MB) jest pobierany asynchronicznie i zapisywany w cache (IndexedDB) dla błyskawicznego startu przy kolejnych wizytach.
-- **Web Worker Isolation:** Cała ciężka praca matematyczna AI odbywa się w osobnym wątku, dzięki czemu interfejs użytkownika pozostaje idealnie płynny (60 FPS).
+- **Web Worker Isolation:** Cała ciężka praca matematyczna AI odbywa się w osobnym wątku, dzięki czemu interfejs użytkownika pozostaje idealnie płynny.
 
 ---
 
@@ -25,7 +26,7 @@ Eksperymentalna aplikacja typu **Serverless AI**, która demonstruje potęgę no
 
 - **Core:** React 19 + TypeScript + Vite
 - **AI Engine:** [Transformers.js](https://huggingface.co/docs/transformers.js) (Hugging Face)
-- **Model:** `Xenova/detr-resnet-50` (ONNX Quantized)
+- **Model:** `Xenova/yolos-tiny` (ONNX Quantized)
 - **Stylizacja:** Tailwind CSS v4 + Glassmorphism Design
 - **State Management:** Zustand
 - **Deployment:** GitHub Pages
@@ -35,10 +36,10 @@ Eksperymentalna aplikacja typu **Serverless AI**, która demonstruje potęgę no
 ## 📦 Jak to działa?
 
 1. **Inicjalizacja:** Aplikacja ładuje statyczne pliki z GitHub Pages.
-2. **Setup Workera:** Tworzony jest `Web Worker`, który asynchronicznie pobiera i kompiluje model sieci neuronowej.
-3. **Stream:** Po wyrażeniu zgody, strumień wideo z kamery jest przechwytywany i wysyłany klatka po klatce do Workera.
-4. **Inferencja:** Silnik AI (Transformers.js) analizuje piksele, używając WebGPU lub WebGL, i zwraca współrzędne wykrytych obiektów.
-5. **Render:** Wyniki są nakładane na przezroczysty `Canvas`, tworząc interaktywny interfejs w stylu "Heads-Up Display" (HUD).
+2. **Setup Workera:** Tworzony jest `Web Worker`, który asynchronicznie pobiera i kompiluje model YOLOv8.
+3. **Stream:** Po wyrażeniu zgody, strumień wideo jest przechwytywany i przesyłany jako surowa bitmapa (`ImageBitmap`) do Workera.
+4. **Inferencja:** Silnik AI analizuje klatkę na GPU (WebGPU) i zwraca współrzędne wykrytych obiektów.
+5. **Render:** Wyniki (Bounding Boxes) są nakładane na przezroczysty `Canvas` z inteligentnym systemem unikania kolizji etykiet.
 
 ---
 
@@ -67,4 +68,5 @@ Projekt udostępniony na licencji MIT. Możesz go dowolnie modyfikować i używa
 ---
 
 ### Autor
+
 **MaXDev-CATHODE** - [GitHub](https://github.com/MaXDev-CATHODE)

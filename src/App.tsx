@@ -1,5 +1,6 @@
 import { CameraFeed } from './components/CameraFeed';
 import { ControlPanel } from './components/ControlPanel';
+import { StatsOverlay } from './components/StatsOverlay';
 import { useVisionStore } from './store/useVisionStore';
 
 function App() {
@@ -34,6 +35,7 @@ function App() {
         {/* Camera Container */}
         <div className="relative w-full aspect-video md:aspect-[21/9] rounded-2xl overflow-hidden shadow-2xl border border-slate-700/50 bg-black">
           <CameraFeed />
+          <StatsOverlay />
         </div>
         
         <ControlPanel />

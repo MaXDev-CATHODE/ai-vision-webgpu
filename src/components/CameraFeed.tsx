@@ -86,7 +86,7 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({ onVideoReady }) => {
         autoPlay
         playsInline
         muted
-        className="w-full h-full object-cover"
+        className="w-full h-full object-contain"
       />
       <OverlayCanvas videoElement={videoElement} />
     </div>

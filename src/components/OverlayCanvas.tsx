@@ -22,6 +22,10 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
   const setProgress = useVisionStore((state) => state.setProgress);
   const isCameraActive = useVisionStore((state) => state.isCameraActive);
   const confidenceThreshold = useVisionStore((state) => state.confidenceThreshold);
+  const setMetrics = useVisionStore((state) => state.setMetrics);
+
+  const lastDetectionTimeRef = useRef<number>(0);
+  const frameStartTimeRef = useRef<number>(0);
 
   // Inicjalizacja Workera
   useEffect(() => {
@@ -51,9 +55,21 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
       }
 
       if (type === 'detect_result') {
-        // console.log('Otrzymano wyniki detekcji:', data.length);
+        const now = performance.now();
+        const latency = Math.round(now - frameStartTimeRef.current);
+        const fps = lastDetectionTimeRef.current 
+          ? Math.round(1000 / (now - lastDetectionTimeRef.current)) 
+          : 0;
+
+        setMetrics({
+          latency,
+          fps,
+          detectedCount: data.length
+        });
+
+        lastDetectionTimeRef.current = now;
         setDetections(data);
-        isProcessingRef.current = false; // Zwalniamy blokadę dla kolejnej klatki
+        isProcessingRef.current = false;
       }
       
       if (type === 'error') {
@@ -87,23 +103,32 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
       if (videoElement && workerRef.current && !isProcessingRef.current && videoElement.readyState === 4) {
         // Aby przesłać obraz do Transformers.js w workerze, tworzymy tymczasowy canvas 
         // i zrzucamy na niego zrzut klatki wideo jako Base64 (lub ImageBitmap).
-        const offscreenCanvas = document.createElement('canvas');
-        // Zmniejszamy rozdzielczość, by sztuczna inteligencja działała szybciej w przeglądarce
-        offscreenCanvas.width = 640; 
-        offscreenCanvas.height = Math.floor(640 * (videoElement.videoHeight / videoElement.videoWidth));
+        // OPTYMALIZACJA: ImageBitmap zamiast Base64
+        // Tworzymy binarną kopię klatki w mniejszej rozdzielczości (640px)
+        const MAX_SIZE = 640;
+        const scale = Math.min(1, MAX_SIZE / Math.max(videoElement.videoWidth, videoElement.videoHeight));
+        const width = videoElement.videoWidth * scale;
+        const height = videoElement.videoHeight * scale;
+
+        isProcessingRef.current = true;
         
-        const ctx = offscreenCanvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(videoElement, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
-          const base64Image = offscreenCanvas.toDataURL('image/jpeg', 0.8);
-          
-          isProcessingRef.current = true; // Blokujemy do czasu otrzymania odpowiedzi z Workera
-          
-          workerRef.current.postMessage({
-            type: 'detect',
-            data: { image: base64Image, threshold: confidenceThreshold }
-          });
-        }
+        createImageBitmap(videoElement, {
+          resizeWidth: width,
+          resizeHeight: height,
+          resizeQuality: 'low'
+        }).then(bitmap => {
+          if (workerRef.current) {
+            frameStartTimeRef.current = performance.now();
+            workerRef.current.postMessage({
+              type: 'detect',
+              data: { image: bitmap, threshold: confidenceThreshold }
+            }, [bitmap]); // Przeniesienie własności (Transferable) - zero kopiowania w RAM!
+          } else {
+            isProcessingRef.current = false;
+          }
+        }).catch(() => {
+          isProcessingRef.current = false;
+        });
       }
 
       // Wywołuj się rekurencyjnie co klatkę (zazwyczaj 60 razy na sekundę)
@@ -132,31 +157,138 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
 
     if (!isCameraActive) return;
 
+    // Obliczanie realnej powierzchni wideo (uwzględniając object-fit: contain)
+    const vWidth = videoElement.videoWidth;
+    const vHeight = videoElement.videoHeight;
+    const cWidth = canvas.width;
+    const cHeight = canvas.height;
+
+    const vRatio = vWidth / vHeight;
+    const cRatio = cWidth / cHeight;
+
+    let drawWidth, drawHeight, offsetX, offsetY;
+
+    if (cRatio > vRatio) {
+      // Kontener jest szerszy niż wideo (paski po bokach)
+      drawHeight = cHeight;
+      drawWidth = cHeight * vRatio;
+      offsetX = (cWidth - drawWidth) / 2;
+      offsetY = 0;
+    } else {
+      // Kontener jest wyższy niż wideo (paski góra/dół)
+      drawWidth = cWidth;
+      drawHeight = cWidth / vRatio;
+      offsetX = 0;
+      offsetY = (cHeight - drawHeight) / 2;
+    }
+
+    // Pomocnicza funkcja do generowania koloru na podstawie nazwy klasy
+    const getColor = (label: string) => {
+      let hash = 0;
+      for (let i = 0; i < label.length; i++) {
+        hash = label.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const h = Math.abs(hash % 360);
+      return `hsl(${h}, 70%, 50%)`; // Żywe kolory HSL
+    };
+
+    // Tablica do śledzenia zajętych obszarów przez etykiety (collision detection)
+    const occupiedRects: { x: number, y: number, w: number, h: number }[] = [];
+
     // Rysowanie wyników AI
     detections.forEach(det => {
-      // Transformers.js zwraca % (od 0.0 do 1.0) przy opcji percentage: true
-      // Skalujemy je przez realne wymiary widocznego elementu
-      const x = det.box.xmin * canvas.width;
-      const y = det.box.ymin * canvas.height;
-      const w = (det.box.xmax - det.box.xmin) * canvas.width;
-      const h = (det.box.ymax - det.box.ymin) * canvas.height;
+      const color = getColor(det.label);
+      
+      // Skalowanie koordynatów
+      const x = det.box.xmin * drawWidth + offsetX;
+      const y = det.box.ymin * drawHeight + offsetY;
+      const w = (det.box.xmax - det.box.xmin) * drawWidth;
+      const h = (det.box.ymax - det.box.ymin) * drawHeight;
 
-      // Styl Bounding Boxa
-      ctx.strokeStyle = '#3b82f6'; // Tailwind blue-500
+      // --- PREMIUM VISUALS: Neon Box ---
+      ctx.strokeStyle = color;
       ctx.lineWidth = 3;
-      ctx.strokeRect(x, y, w, h);
+      
+      // Glow effect
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 10;
+      
+      // Rysujemy tylko narożniki dla futurystycznego wyglądu (HUD style)
+      const cornerLen = Math.min(w, h, 20);
+      
+      // Top-Left
+      ctx.beginPath();
+      ctx.moveTo(x, y + cornerLen);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x + cornerLen, y);
+      ctx.stroke();
+      
+      // Top-Right
+      ctx.beginPath();
+      ctx.moveTo(x + w - cornerLen, y);
+      ctx.lineTo(x + w, y);
+      ctx.lineTo(x + w, y + cornerLen);
+      ctx.stroke();
+      
+      // Bottom-Right
+      ctx.beginPath();
+      ctx.moveTo(x + w, y + h - cornerLen);
+      ctx.lineTo(x + w, y + h);
+      ctx.lineTo(x + w - cornerLen, y + h);
+      ctx.stroke();
+      
+      // Bottom-Left
+      ctx.beginPath();
+      ctx.moveTo(x + cornerLen, y + h);
+      ctx.lineTo(x, y + h);
+      ctx.lineTo(x, y + h - cornerLen);
+      ctx.stroke();
 
-      // Tło dla etykiety (Glassmorphism effect)
-      const label = `${det.label} (${Math.round(det.score * 100)}%)`;
-      ctx.font = 'bold 16px sans-serif';
-      const textWidth = ctx.measureText(label).width;
+      // Cienka ramka łącząca (półprzezroczysta)
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 0.2;
+      ctx.strokeRect(x, y, w, h);
+      ctx.globalAlpha = 1.0;
+
+      // Przygotowanie etykiety
+      const labelText = `${det.label} ${Math.round(det.score * 100)}%`;
+      ctx.font = 'bold 11px "Outfit", system-ui, sans-serif';
+      const metrics = ctx.measureText(labelText);
+      const textWidth = metrics.width;
+      const labelHeight = 20;
+      const padding = 10;
+      const fullWidth = textWidth + padding * 2;
       
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.8)'; // slate-900 z przezroczystością
-      ctx.fillRect(x, y - 30, textWidth + 16, 30);
+      let labelX = x;
+      let labelY = y - labelHeight - 4;
+      if (labelY < 0) labelY = y + 4;
+
+      // Unikanie kolizji
+      let attempts = 0;
+      while (attempts < 5) {
+        const collision = occupiedRects.some(r => {
+          return !(labelX + fullWidth < r.x || labelX > r.x + r.w || labelY + labelHeight < r.y || labelY > r.y + r.h);
+        });
+        if (collision) {
+          labelY += labelHeight + 4;
+          attempts++;
+        } else break;
+      }
+      occupiedRects.push({ x: labelX, y: labelY, w: fullWidth, h: labelHeight });
+
+      // Szklana etykieta (Glassmorphism)
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+      ctx.beginPath();
+      ctx.roundRect(labelX, labelY, fullWidth, labelHeight, 4);
+      ctx.fill();
       
-      // Tekst etykiety
+      // Akcent boczny koloru
+      ctx.fillStyle = color;
+      ctx.fillRect(labelX, labelY, 3, labelHeight);
+      
+      // Tekst
       ctx.fillStyle = '#ffffff';
-      ctx.fillText(label, x + 8, y - 10);
+      ctx.fillText(labelText.toUpperCase(), labelX + padding + 2, labelY + 14);
     });
 
   }, [detections, videoElement, isCameraActive]);
