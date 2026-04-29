@@ -1,221 +1,237 @@
 import { pipeline, env, RawImage } from '@huggingface/transformers';
 import { AI_CONFIG } from '../utils/aiConfig';
 
-// v3 environment configuration - MUST BE SET BEFORE ANY PIPELINE CALL
-env.allowLocalModels = true;
-env.allowRemoteModels = false; 
-env.useBrowserCache = true;
-// Ścieżka do lokalnych modeli w folderze public - domyślnie root, ale będzie nadpisana przez baseUrl
-env.localModelPath = '/models/';
+// Konfiguracja v3
+env.allowLocalModels = false; 
+env.allowRemoteModels = true; 
+env.useBrowserCache = false; 
+env.remotePathTemplate = '{model}/'; 
 
-// Detect mobile for specific optimizations
-const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+// WASM optimizations
+if (env.backends.onnx.wasm) {
+  env.backends.onnx.wasm.numThreads = 1; 
+  env.backends.onnx.wasm.simd = true;
+}
 
-console.log('AI Worker Module Load. Configured for LOCAL models only.');
+const log = (msg: string) => self.postMessage({ status: 'log', message: msg });
+
+async function resolveBestModelHost(modelName: string): Promise<string> {
+  const origin = self.location.origin;
+  const hostsToTry = [
+    `${origin}/ai-vision-webgpu/models/Xenova/`, 
+    `${origin}/models/Xenova/`,                 
+    `${origin}/ai-vision-webgpu/models/`, 
+    `${origin}/models/`,
+  ];
+
+  for (const host of hostsToTry) {
+    try {
+      const testUrl = `${host}${modelName}/config.json`;
+      log(`Worker: Testing model path: ${testUrl}`);
+      const response = await fetch(testUrl, { method: 'GET' }); 
+      const contentType = response.headers.get('content-type') || '';
+      
+      if (response.ok && !contentType.includes('text/html')) {
+        log(`Worker: Found valid model host: ${host}`);
+        return host;
+      } else {
+        log(`Worker: Path ${host} returned OK but it's HTML (SPA fallback). Skipping.`);
+      }
+    } catch (e: any) {
+      log(`Worker: Error testing ${host}: ${e.message}`);
+    }
+  }
+  
+  log("Worker: Could not auto-detect model host, falling back to default.");
+  return hostsToTry[0];
+}
 
 class PipelineSingleton {
-  static task = AI_CONFIG.task;
   static model = AI_CONFIG.model;
   static instance: any = null;
 
   static async getInstance(progress_callback?: (progress: any) => void) {
     if (this.instance === null) {
-      const isWebGPUSupported = !!(navigator as any).gpu;
-      const shouldTryWebGPU = isWebGPUSupported;
+      env.remoteHost = await resolveBestModelHost(this.model);
+      const modelId = this.model;
       
-      if (shouldTryWebGPU) {
-        try {
-          console.log('Attempting WebGPU initialization...');
-          this.instance = await pipeline(this.task as any, this.model, {
-            progress_callback,
-            device: 'webgpu',
-            // @ts-ignore
-            quantized: true,
-          });
-          console.log('Success: WebGPU backend');
-          return this.instance;
-        } catch (err: any) {
-          console.warn('WebGPU failed, falling back to WASM. Reason:', err?.message || err);
-        }
-      }
+      log(`Worker: Requesting model: ${modelId} via host: ${env.remoteHost}`);
 
+      const isWebGPUSupported = !!(navigator as any).gpu;
+      
       try {
-        console.log('Initializing with WASM fallback (SIMD/Threads optimized)...');
-        this.instance = await pipeline(this.task as any, this.model, {
+        log('Attempting pipeline initialization...');
+        this.instance = await pipeline('object-detection', modelId, {
           progress_callback,
-          device: 'wasm', 
+          device: isWebGPUSupported ? 'webgpu' : 'wasm',
           // @ts-ignore
-          quantized: true,
+          tokenizer: null, 
         });
-        console.log('Success: WASM backend');
+
+        log('Success: Pipeline initialized');
+
+        // PANCERNY PATCH: przechwyć wywołanie forward i zmapuj klucze
+        if (this.instance.model) {
+          const model = this.instance.model;
+          const originalForward = model.forward.bind(model);
+          model.forward = async (inputs: any, ...args: any[]) => {
+            if (inputs.pixel_values && !inputs.images) {
+               inputs.images = inputs.pixel_values;
+            }
+            return originalForward(inputs, ...args);
+          };
+          log('Success: Model forward method patched for "images" input');
+        }
+
         return this.instance;
       } catch (err: any) {
-        console.error('WASM fallback failed:', err);
-        
-        // Final retry: disable cache entirely
-        if (env.useBrowserCache) {
-            console.warn('FINAL RETRY: Initializing without Browser Cache...');
-            env.useBrowserCache = false;
-            try {
-                this.instance = await pipeline(this.task as any, this.model, {
-                    progress_callback,
-                    device: 'wasm',
-                    // @ts-ignore
-                    quantized: true,
-                });
-                console.log('Success after disabling cache');
-                return this.instance;
-            } catch (retryErr: any) {
-                console.error('Critical failure after all attempts:', retryErr);
-                throw retryErr;
-            }
-        } else {
-            throw err;
-        }
+        log(`CRITICAL FAILURE: ${err.message}`);
+        throw err;
       }
     }
     return this.instance;
   }
 }
 
+self.onmessage = async (event: MessageEvent) => {
+  const { action, image, threshold } = event.data;
 
+  if (action === 'init') {
+    try {
+      await PipelineSingleton.getInstance((progress) => {
+        self.postMessage({ status: 'progress', progress });
+      });
+      self.postMessage({ status: 'ready' });
+    } catch (error: any) {
+      self.postMessage({ status: 'error', error: error.message });
+    }
+    return;
+  }
 
+  if (action === 'detect') {
+    log(`Worker: Received detect request for image. Action: ${action}`);
+    try {
+      const detector = await PipelineSingleton.getInstance();
+      const processor = (detector as any).processor || (detector as any).image_processor;
+      const model = (detector as any).model;
+
+      // 1. Convert ImageBitmap to RawImage for processing stability in v3
+      const canvas = new OffscreenCanvas(image.width, image.height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error("OffscreenCanvas context failed");
+      ctx.drawImage(image, 0, 0);
+      const imageData = ctx.getImageData(0, 0, image.width, image.height);
+      const rawImage = new RawImage(new Uint8Array(imageData.data), image.width, image.height, 4);
+      const inputs = await processor(rawImage);
+      
+      // 2. Use pipeline for automatic post-processing
+      // Our forward patch in Singleton will handle the key mapping
+      const outputs = await model.forward({ 
+        images: inputs.pixel_values,
+        pixel_values: inputs.pixel_values
+      });
+
+      // 3. Manual YOLOv8 Decoding (most stable approach for v3 compatibility)
+      const output0 = outputs.output0;
+      const data = output0.data;
+      const [_batch, num_features, num_anchors] = output0.dims; // [1, 84, 8400]
+      
+      const detections = [];
+      const confLimit = threshold || 0.4;
+      
+      for (let i = 0; i < num_anchors; ++i) {
+        let maxScore = -1;
+        let classId = -1;
+        
+        // Find best class
+        for (let c = 4; c < num_features; ++c) {
+          const score = data[c * num_anchors + i];
+          if (score > maxScore) {
+            maxScore = score;
+            classId = c - 4;
+          }
+        }
+        
+        if (maxScore > confLimit) {
+          const cx = data[0 * num_anchors + i];
+          const cy = data[1 * num_anchors + i];
+          const w = data[2 * num_anchors + i];
+          const h = data[3 * num_anchors + i];
+          
+          // YOLOv8 output is typically [0-640] if input was 640x640
+          const xmin = (cx - w/2);
+          const ymin = (cy - h/2);
+          const xmax = (cx + w/2);
+          const ymax = (cy + h/2);
+          
+          detections.push({
+            label: COCO_CLASSES[classId] || `obj_${classId}`,
+            score: maxScore,
+            box: {
+              xmin: Math.max(0, xmin),
+              ymin: Math.max(0, ymin),
+              xmax: Math.min(1, xmax),
+              ymax: Math.min(1, ymax)
+            }
+          });
+        }
+      }
+
+      // Simple NMS (Non-Maximum Suppression) - be more strict
+      const finalDetections = nms(detections, 0.4);
+      
+      log(`Success: Found ${finalDetections.length} objects`);
+      self.postMessage({ status: 'result', output: Array.isArray(finalDetections) ? finalDetections : [] });
+    } catch (error: any) {
+      self.postMessage({ status: 'error', error: error.message });
+    }
+  }
+};
+
+// --- HELPER FUNCTIONS ---
+
+const COCO_CLASSES = [
+  "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
+  "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+  "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+  "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket", "bottle",
+  "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange",
+  "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch", "potted plant", "bed",
+  "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone", "microwave", "oven",
+  "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"
+];
+
+function nms(boxes: any[], iouThreshold: number) {
+  boxes.sort((a, b) => b.score - a.score);
+  const result = [];
+  const selected = new Array(boxes.length).fill(true);
+  
+  for (let i = 0; i < boxes.length; i++) {
+    if (!selected[i]) continue;
+    result.push(boxes[i]);
+    
+    for (let j = i + 1; j < boxes.length; j++) {
+      if (!selected[j]) continue;
+      if (calculateIoU(boxes[i].box, boxes[j].box) > iouThreshold) {
+        selected[j] = false;
+      }
+    }
+  }
+  return result;
+}
 
 function calculateIoU(box1: any, box2: any) {
   const x1 = Math.max(box1.xmin, box2.xmin);
   const y1 = Math.max(box1.ymin, box2.ymin);
   const x2 = Math.min(box1.xmax, box2.xmax);
   const y2 = Math.min(box1.ymax, box2.ymax);
-
-  const intersection = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
-  const area1 = (box1.xmax - box1.xmin) * (box1.ymax - box1.ymin);
-  const area2 = (box2.xmax - box2.xmin) * (box2.ymax - box2.ymin);
-  const union = area1 + area2 - intersection;
-
-  return union > 0 ? intersection / union : 0;
-}
-
-function nms(detections: any[], iouThreshold = 0.4) {
-  if (!Array.isArray(detections)) return [];
   
-  const sorted = [...detections].sort((a, b) => b.score - a.score);
-  const kept: any[] = [];
-
-  for (const current of sorted) {
-    let keep = true;
-    for (const other of kept) {
-      if (calculateIoU(current.box, other.box) > iouThreshold) {
-        keep = false;
-        break;
-      }
-    }
-    if (keep) kept.push(current);
-  }
-  return kept.slice(0, 10);
+  const width = Math.max(0, x2 - x1);
+  const height = Math.max(0, y2 - y1);
+  const intersectionArea = width * height;
+  
+  const box1Area = (box1.xmax - box1.xmin) * (box1.ymax - box1.ymin);
+  const box2Area = (box2.xmax - box2.xmin) * (box2.ymax - box2.ymin);
+  
+  return intersectionArea / (box1Area + box2Area - intersectionArea);
 }
-
-// Pre-allocate resources to avoid GC pressure
-let offscreenCanvas: OffscreenCanvas | null = null;
-let offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
-let isProcessing = false;
-
-self.addEventListener('message', async (event) => {
-  const { type, data } = event.data;
-
-  if (type === 'load_model') {
-    if (event.data.baseUrl) {
-      env.localModelPath = event.data.baseUrl + 'models/';
-      console.log('Worker: Adjusted localModelPath to:', env.localModelPath);
-    }
-    try {
-      await PipelineSingleton.getInstance((x) => {
-        self.postMessage({ type: 'progress', data: x });
-      });
-      self.postMessage({ type: 'ready' });
-    } catch (err: any) {
-      console.error('Detailed Model loading failed:', {
-        message: err.message,
-        stack: err.stack,
-        err
-      });
-      self.postMessage({ 
-        type: 'error', 
-        data: err.message || String(err) 
-      });
-    }
-  }
-
-  if (type === 'detect') {
-    // Skip frame if already processing (prevents queue buildup and high latency)
-    if (isProcessing) {
-        if (data.image && data.image.close) data.image.close();
-        return;
-    }
-
-    try {
-      isProcessing = true;
-      if (data.baseUrl) {
-          env.localModelPath = data.baseUrl + 'models/';
-      }
-      const detector = await PipelineSingleton.getInstance();
-      
-      const bitmap = data.image;
-      
-      // Optimization: yolov8n native resolution is 640x640.
-      // Scaling down to 640px (or 320px on mobile) in worker is faster than letting Transformers.js do it on CPU.
-      const MAX_DIM = isMobile ? 320 : 640;
-      let targetWidth = bitmap.width;
-      let targetHeight = bitmap.height;
-      
-      if (targetWidth > MAX_DIM || targetHeight > MAX_DIM) {
-          const scale = MAX_DIM / Math.max(targetWidth, targetHeight);
-          targetWidth = Math.floor(targetWidth * scale);
-          targetHeight = Math.floor(targetHeight * scale);
-      }
-
-      // Reuse canvas and context
-      if (!offscreenCanvas || offscreenCanvas.width !== targetWidth || offscreenCanvas.height !== targetHeight) {
-          offscreenCanvas = new OffscreenCanvas(targetWidth, targetHeight);
-          offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
-      }
-      
-      if (!offscreenCtx) throw new Error('Could not get OffscreenCanvas context');
-      
-      // Draw rescaled image
-      offscreenCtx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
-      
-      const imageData = offscreenCtx.getImageData(0, 0, targetWidth, targetHeight);
-      
-      // In v3, we use RawImage for better stability and WebGPU compatibility
-      const rawImage = new RawImage(imageData.data, targetWidth, targetHeight, 4);
-
-      const output = await detector(rawImage, {
-        threshold: data.threshold || AI_CONFIG.minConfidenceThreshold,
-        percentage: true,
-      });
-
-      // Report actual device if it changed or for diagnostics
-      if (detector.device !== PipelineSingleton.instance.device) {
-          console.log('Actual pipeline device:', detector.device);
-      }
-
-      // Stricter NMS
-      const filtered = nms(output, 0.3);
-
-      self.postMessage({ type: 'detect_result', data: filtered });
-
-      
-    } catch (err: any) {
-      console.error('v3 Detection Error:', err);
-      self.postMessage({ 
-        type: 'error', 
-        data: err.message || String(err) 
-      });
-    } finally {
-      isProcessing = false;
-      if (data.image && data.image.close) data.image.close();
-    }
-  }
-});
-
-

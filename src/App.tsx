@@ -6,10 +6,48 @@ import { useVisionStore } from './store/useVisionStore';
 import { AIWorkerManager } from './utils/aiWorkerManager';
 
 function App() {
+  const setStatus = useVisionStore((state) => state.setStatus);
+  const setProgress = useVisionStore((state) => state.setProgress);
+
   useEffect(() => {
     // T004: Asynchroniczne pobieranie wag od razu po załadowaniu głównego komponentu
     AIWorkerManager.preloadModels();
-  }, []);
+
+    // Nasłuchuj od razu na wiadomości workera (nie czekaj na montaż OverlayCanvas!)
+    const aiWorker = AIWorkerManager.getAIWorker();
+
+    const handleMessage = (e: MessageEvent) => {
+      const { status, progress, message, error } = e.data;
+      
+      if (status === 'log') {
+        console.log(`[WorkerLog] ${message}`);
+        return;
+      }
+
+      if (status === 'progress') {
+        setStatus('loading');
+        // Transformers.js v3 format: { status: 'progress', progress: 50 }
+        // Our worker format for manual progress: { status: 'progress', progress: { progress: 50, file: '...' } }
+        const p = progress?.progress !== undefined ? progress.progress : (typeof progress === 'number' ? progress : 0);
+        const file = progress?.file || 'model';
+        setProgress(p, `Pobieranie: ${file}...`);
+      }
+
+      if (status === 'ready') {
+        console.log('AI Engine: READY');
+        setStatus('ready');
+        setProgress(100, 'Model AI gotowy');
+      }
+
+      if (status === 'error') {
+        console.error('AI Engine Error:', error);
+        setStatus('error', String(error));
+      }
+    };
+
+    aiWorker.addEventListener('message', handleMessage);
+    return () => aiWorker.removeEventListener('message', handleMessage);
+  }, [setStatus, setProgress]);
 
   const toggleCamera = useVisionStore((state) => state.toggleCamera);
   const isCameraActive = useVisionStore((state) => state.isCameraActive);

@@ -1,13 +1,11 @@
 export const AI_CONFIG = {
-  // Przełączenie na model YOLOv10n (zgodny z Transformers.js v3)
-  model: 'yolov8n',
-  model_file: 'model_quantized.onnx',
+  // Model YOLOv8n (architektura YOLOS) - lokalny
+  model: 'yolov8n', 
+  model_file: 'model.onnx',
+  baseUrl: import.meta.env.DEV ? '/' : import.meta.env.BASE_URL,
   threshold: 0.45,
   task: 'object-detection',
-  // Podniesiony threshold dla lepszej stabilności detekcji
   minConfidenceThreshold: 0.40,
-  // YOLOv10n natywnie operuje na 640x640, co daje najlepszą dokładność
   inputResolution: 640,
-  // Pokaż HUD nawet przy błędzie, by ułatwić debugowanie ścieżek modelu
   showStatsOnError: true,
 };

@@ -1,0 +1,4 @@
+{
+  "tokenizer_class": "PreTrainedTokenizer",
+  "model_max_length": 1000000000000000019884624838656
+}

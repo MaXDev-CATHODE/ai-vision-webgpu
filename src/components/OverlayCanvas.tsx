@@ -42,34 +42,34 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
     scannerWorkerRef.current = scannerWorker;
 
     const handleAIWorkerMessage = (e: MessageEvent) => {
-      const { type, data } = e.data;
+      const { status, type, data, output, error } = e.data;
       
+      // Mapowanie nowego protokołu (status) na stary (type) dla kompatybilności wstecznej UI
+      const messageType = status || type;
+      const messageData = output || data;
+
       // Zawsze zwalniamy blokadę przy wynikach/błędach, niezależnie od trybu
-      if (type === 'detect_result' || type === 'error') {
+      if (messageType === 'result' || messageType === 'detect_result' || messageType === 'error' || status === 'error') {
         isProcessingRef.current = false;
       }
 
-      if (type === 'progress') {
+      if (status === 'progress' || type === 'progress') {
         setStatus('loading');
-        if (data.status === 'downloading' || data.status === 'progress') {
-          setProgress(data.progress || 0, `Pobieranie: ${data.file || 'model'}...`);
-        } else if (data.status === 'done') {
-          setProgress(100, `Zakończono pobieranie ${data.file}`);
-        }
+        // ... (reszta logiki progress jest w App.tsx, tu możemy zostawić uproszczoną lub usunąć)
       }
 
-      if (type === 'ready') {
+      if (status === 'ready' || type === 'ready') {
         setStatus('ready');
         setProgress(100, 'Model AI gotowy');
       }
 
       // Przetwarzaj wyniki TYLKO jeśli jesteśmy w odpowiednim trybie
-      if (type === 'detect_result' && mode === 'ai') {
-        handleResult(data);
+      if ((messageType === 'result' || messageType === 'detect_result') && mode === 'ai') {
+        handleResult(messageData);
       }
       
-      if (type === 'error' && mode === 'ai') {
-        handleError(data);
+      if ((messageType === 'error' || status === 'error') && mode === 'ai') {
+        handleError(error || data);
       }
     };
 
@@ -98,6 +98,7 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
       const latency = Math.round(now - frameStartTimeRef.current);
       const fps = lastDetectionTimeRef.current ? Math.round(1000 / (now - lastDetectionTimeRef.current)) : 0;
 
+      console.log(`[AI Result] Detected ${data.length} objects. Latency: ${latency}ms`);
       setMetrics({ latency, fps, detectedCount: data.length });
       lastDetectionTimeRef.current = now;
 
@@ -158,12 +159,9 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
             frameStartTimeRef.current = performance.now();
             if (mode === 'ai') {
               activeWorker.postMessage({
-                type: 'detect',
-                data: { 
-                  image: bitmap, 
-                  threshold: confidenceThreshold,
-                  baseUrl: window.location.origin + import.meta.env.BASE_URL
-                }
+                action: 'detect',
+                image: bitmap, 
+                threshold: confidenceThreshold
               }, [bitmap]);
             } else {
               activeWorker.postMessage({
@@ -235,7 +233,7 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
 
     const occupiedRects: { x: number, y: number, w: number, h: number }[] = [];
 
-    if (mode === 'ai') {
+    if (mode === 'ai' && Array.isArray(detections)) {
       detections.forEach(det => {
         const color = getColor(det.label);
         const x = det.box.xmin * drawWidth + offsetX;
