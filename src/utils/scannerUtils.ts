@@ -1,5 +1,5 @@
 // Utility for QR and Barcode scanning
-export const isBarcodeDetectorSupported = () => 'BarcodeDetector' in window;
+export const isBarcodeDetectorSupported = () => 'BarcodeDetector' in globalThis;
 
 export interface ScanResult {
   rawValue: string;

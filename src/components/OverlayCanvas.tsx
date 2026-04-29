@@ -42,7 +42,11 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
 
     aiWorker.onmessage = (e) => {
       const { type, data } = e.data;
-      if (mode !== 'ai' && type !== 'progress' && type !== 'ready') return;
+      
+      // Zawsze zwalniamy blokadę przy wynikach/błędach, niezależnie od trybu
+      if (type === 'detect_result' || type === 'error') {
+        isProcessingRef.current = false;
+      }
 
       if (type === 'progress') {
         setStatus('loading');
@@ -58,28 +62,32 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
         setProgress(100, 'Model AI gotowy');
       }
 
-      if (type === 'detect_result') {
+      // Przetwarzaj wyniki TYLKO jeśli jesteśmy w odpowiednim trybie
+      if (type === 'detect_result' && mode === 'ai') {
         handleResult(data);
       }
       
-      if (type === 'error') {
+      if (type === 'error' && mode === 'ai') {
         handleError(data);
       }
     };
 
     scannerWorker.onmessage = (e) => {
       const { type, data } = e.data;
-      if (mode === 'ai') return;
+      
+      if (type === 'scan_result' || type === 'error') {
+        isProcessingRef.current = false;
+      }
 
       if (type === 'ready') {
         setStatus('ready');
       }
 
-      if (type === 'scan_result') {
+      if (type === 'scan_result' && mode !== 'ai') {
         handleResult(data);
       }
 
-      if (type === 'error') {
+      if (type === 'error' && mode !== 'ai') {
         handleError(data);
       }
     };
@@ -97,13 +105,11 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
       } else {
         setScanResults(data);
       }
-      isProcessingRef.current = false;
     };
 
     const handleError = (err: any) => {
       console.error('Błąd workera:', err);
       setStatus('error', String(err));
-      isProcessingRef.current = false;
     };
 
     aiWorker.postMessage({ type: 'load_model' });
@@ -114,6 +120,11 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
       scannerWorker.terminate();
     };
   }, [setStatus, setProgress, mode, setMetrics, setScanResults]);
+
+  // Reset flagi przy zmianie trybu, aby uniknąć blokady
+  useEffect(() => {
+    isProcessingRef.current = false;
+  }, [mode]);
 
   // Pętla Przechwytywania Klatek (Frame Capture Loop)
   useEffect(() => {
