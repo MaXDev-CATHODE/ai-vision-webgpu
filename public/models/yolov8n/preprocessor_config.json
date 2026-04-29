@@ -17,5 +17,6 @@
   "size": {
     "height": 640,
     "width": 640
-  }
+  },
+  "feature_extractor_type": "DetrFeatureExtractor"
 }

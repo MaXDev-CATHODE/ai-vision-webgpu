@@ -1,8 +1,8 @@
 {
   "architectures": [
-    "YolosForObjectDetection"
+    "YOLOv8ForObjectDetection"
   ],
-  "model_type": "yolos",
+  "model_type": "yolov8",
   "torch_dtype": "float32",
   "id2label": {
     "0": "person",
