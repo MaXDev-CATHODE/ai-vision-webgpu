@@ -1,4 +1,4 @@
-import { pipeline, env } from '@huggingface/transformers';
+import { pipeline, env, RawImage } from '@huggingface/transformers';
 import { AI_CONFIG } from '../utils/aiConfig';
 
 // v3 environment configuration - MUST BE SET BEFORE ANY PIPELINE CALL
@@ -184,10 +184,12 @@ self.addEventListener('message', async (event) => {
       // Draw rescaled image
       offscreenCtx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
       
-      // In v3, we can pass ImageData directly which is faster
       const imageData = offscreenCtx.getImageData(0, 0, targetWidth, targetHeight);
+      
+      // In v3, we use RawImage for better stability and WebGPU compatibility
+      const rawImage = new RawImage(imageData.data, targetWidth, targetHeight, 4);
 
-      const output = await detector(imageData, {
+      const output = await detector(rawImage, {
         threshold: data.threshold || AI_CONFIG.minConfidenceThreshold,
         percentage: true,
       });
