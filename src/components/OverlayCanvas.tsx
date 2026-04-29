@@ -74,10 +74,11 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
       
       if (type === 'error') {
         console.error('Błąd silnika AI:', data);
-        setStatus('error');
+        setStatus('error', data);
         setProgress(0, 'Wystąpił błąd podczas ładowania modelu.');
         isProcessingRef.current = false; // Resetujemy blokadę nawet przy błędzie
       }
+
     };
 
     // Zleć załadowanie modelu natychmiast po zamontowaniu

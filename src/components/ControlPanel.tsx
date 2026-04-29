@@ -6,6 +6,7 @@ export const ControlPanel: React.FC = () => {
   const status = useVisionStore((state) => state.status);
   const progress = useVisionStore((state) => state.progress);
   const message = useVisionStore((state) => state.loadingMessage);
+  const errorMessage = useVisionStore((state) => state.errorMessage);
   const confidenceThreshold = useVisionStore((state) => state.confidenceThreshold);
   const setConfidenceThreshold = useVisionStore((state) => state.setConfidenceThreshold);
 
@@ -25,7 +26,21 @@ export const ControlPanel: React.FC = () => {
         </div>
       </div>
 
+      {/* Error Message */}
+      {status === 'error' && errorMessage && (
+        <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-start gap-2 text-rose-400">
+            <AlertCircle size={16} className="mt-0.5 shrink-0" />
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase">Szczegóły błędu:</p>
+              <p className="text-[11px] font-mono break-all">{errorMessage}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Progress Bar (Visible only when loading) */}
+
       {status === 'loading' && (
         <div className="w-full space-y-2 animate-in fade-in slide-in-from-top-4 duration-500">
           <div className="flex justify-between text-xs text-slate-400 font-mono">
