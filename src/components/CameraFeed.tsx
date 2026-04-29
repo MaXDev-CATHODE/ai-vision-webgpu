@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { useVisionStore } from '../store/useVisionStore';
 import { OverlayCanvas } from './OverlayCanvas';
 
@@ -8,6 +8,7 @@ interface CameraFeedProps {
 
 export const CameraFeed: React.FC<CameraFeedProps> = ({ onVideoReady }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
   const isCameraActive = useVisionStore((state) => state.isCameraActive);
   const toggleCamera = useVisionStore((state) => state.toggleCamera);
 
@@ -30,6 +31,9 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({ onVideoReady }) => {
           // Wait until video has loaded its metadata to start processing
           videoRef.current.onloadedmetadata = () => {
             videoRef.current?.play();
+            // Set element to state to trigger OverlayCanvas update
+            setVideoElement(videoRef.current);
+            
             if (onVideoReady && videoRef.current) {
               onVideoReady(videoRef.current);
             }
@@ -47,6 +51,7 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({ onVideoReady }) => {
     if (isCameraActive) {
       startCamera();
     } else {
+      setVideoElement(null);
       // Stop all tracks when camera is disabled
       if (videoRef.current && videoRef.current.srcObject) {
         const currentStream = videoRef.current.srcObject as MediaStream;
@@ -83,7 +88,7 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({ onVideoReady }) => {
         muted
         className="w-full h-full object-cover"
       />
-      <OverlayCanvas videoElement={videoRef.current} />
+      <OverlayCanvas videoElement={videoElement} />
     </div>
   );
 };

@@ -51,6 +51,7 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
       }
 
       if (type === 'detect_result') {
+        // console.log('Otrzymano wyniki detekcji:', data.length);
         setDetections(data);
         isProcessingRef.current = false; // Zwalniamy blokadę dla kolejnej klatki
       }
@@ -59,6 +60,7 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
         console.error('Błąd silnika AI:', data);
         setStatus('error');
         setProgress(0, 'Wystąpił błąd podczas ładowania modelu.');
+        isProcessingRef.current = false; // Resetujemy blokadę nawet przy błędzie
       }
     };
 

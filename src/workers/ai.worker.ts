@@ -42,6 +42,7 @@ self.addEventListener('message', async (event) => {
   // Akcja: PRZETWORZENIE KLATKI WIDEO (Detekcja)
   if (type === 'detect') {
     try {
+      // console.log('Worker: Rozpoczynam detekcję...');
       const detector = await PipelineSingleton.getInstance();
       
       // Detektor z Transformers.js przyjmuje Base64, URL lub obiekt Canvas/Image
