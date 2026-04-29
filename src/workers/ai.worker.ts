@@ -133,6 +133,11 @@ function nms(detections: any[], iouThreshold = 0.4) {
   return kept.slice(0, 10);
 }
 
+// Pre-allocate resources to avoid GC pressure
+let offscreenCanvas: OffscreenCanvas | null = null;
+let offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
+let isProcessing = false;
+
 self.addEventListener('message', async (event) => {
   const { type, data } = event.data;
 
@@ -156,35 +161,58 @@ self.addEventListener('message', async (event) => {
   }
 
   if (type === 'detect') {
+    // Skip frame if already processing (prevents queue buildup and high latency)
+    if (isProcessing) {
+        if (data.image && data.image.close) data.image.close();
+        return;
+    }
+
     try {
+      isProcessing = true;
       const detector = await PipelineSingleton.getInstance();
       
       const bitmap = data.image;
-      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Could not get OffscreenCanvas context');
       
-      ctx.drawImage(bitmap, 0, 0);
-      const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+      // Optimization: Downsample image for faster processing on CPU/Mobile
+      // Model yolos-tiny works on small resolution anyway.
+      const MAX_DIM = isMobile ? 480 : 640;
+      let targetWidth = bitmap.width;
+      let targetHeight = bitmap.height;
+      
+      if (targetWidth > MAX_DIM || targetHeight > MAX_DIM) {
+          const scale = MAX_DIM / Math.max(targetWidth, targetHeight);
+          targetWidth = Math.floor(targetWidth * scale);
+          targetHeight = Math.floor(targetHeight * scale);
+      }
+
+      // Reuse canvas and context
+      if (!offscreenCanvas || offscreenCanvas.width !== targetWidth || offscreenCanvas.height !== targetHeight) {
+          offscreenCanvas = new OffscreenCanvas(targetWidth, targetHeight);
+          offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+      }
+      
+      if (!offscreenCtx) throw new Error('Could not get OffscreenCanvas context');
+      
+      // Draw rescaled image
+      offscreenCtx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+      const imageData = offscreenCtx.getImageData(0, 0, targetWidth, targetHeight);
 
       let image;
       try {
         image = await (RawImage as any).read(imageData);
       } catch (readErr) {
-        console.warn('RawImage.read fallback:', readErr);
         image = new RawImage(imageData.data, imageData.width, imageData.height, 4);
       }
 
       const output = await detector(image, {
-        threshold: data.threshold || 0.4,
+        threshold: data.threshold || 0.5, // Default to 0.5 for better accuracy
         percentage: true,
       });
 
-      const filtered = nms(output, 0.4);
+      // Stricter NMS for mobile
+      const filtered = nms(output, 0.35);
 
       self.postMessage({ type: 'detect_result', data: filtered });
-      
-      if (data.image && data.image.close) data.image.close();
       
     } catch (err: any) {
       console.error('v3 Detection Error:', err);
@@ -192,8 +220,11 @@ self.addEventListener('message', async (event) => {
         type: 'error', 
         data: err.message || String(err) 
       });
+    } finally {
+      isProcessing = false;
       if (data.image && data.image.close) data.image.close();
     }
   }
 });
+
 

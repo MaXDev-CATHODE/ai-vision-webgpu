@@ -9,10 +9,13 @@ export const ControlPanel: React.FC = () => {
   const errorMessage = useVisionStore((state) => state.errorMessage);
   const confidenceThreshold = useVisionStore((state) => state.confidenceThreshold);
   const setConfidenceThreshold = useVisionStore((state) => state.setConfidenceThreshold);
+  const isHUDOnly = useVisionStore((state) => state.isHUDOnly);
+  const setHUDOnly = useVisionStore((state) => state.setHUDOnly);
+  const toggleFullscreen = useVisionStore((state) => state.toggleFullscreen);
 
   return (
     <div className="w-full glass rounded-2xl p-6 flex flex-col gap-6">
-      <div className="flex items-center justify-between border-b border-white/10 pb-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-white/10 pb-4 gap-4">
         <h2 className="text-xl font-bold flex items-center gap-2">
           <BrainCircuit className="text-blue-400" />
           Silnik Inferencji (AI)
@@ -54,13 +57,14 @@ export const ControlPanel: React.FC = () => {
             />
           </div>
           <p className="text-[10px] text-amber-500/70 mt-1">
-            Pierwsze uruchomienie wymaga pobrania ok. 40MB danych modelu z CDN. Zostaną one zapisane w pamięci podręcznej przeglądarki na zawsze.
+            Pierwsze uruchomienie wymaga pobrania ok. 40MB danych modelu. Zostaną one zapisane w pamięci podręcznej.
           </p>
         </div>
       )}
 
       {/* Controls */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pt-2">
+        {/* Detection Threshold */}
         <div className="space-y-3">
           <label className="flex items-center gap-2 text-sm font-medium text-slate-300">
             <Settings2 size={16} className="text-slate-400" />
@@ -81,10 +85,40 @@ export const ControlPanel: React.FC = () => {
             </span>
           </div>
           <p className="text-xs text-slate-500">
-            Filtruje obiekty, których AI nie jest w 100% pewne. Ustaw niżej, jeśli nic nie wykrywa.
+            Zwiększ, aby wyeliminować błędy. Zmniejsz, jeśli AI nic nie wykrywa.
+          </p>
+        </div>
+
+        {/* View Options */}
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-300">
+            <Settings2 size={16} className="text-slate-400" />
+            Opcje Widoku
+          </label>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => setHUDOnly(!isHUDOnly)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
+                isHUDOnly 
+                ? 'bg-blue-500/20 border-blue-500/50 text-blue-300' 
+                : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+              }`}
+            >
+              TRYB HUD
+            </button>
+            <button
+              onClick={toggleFullscreen}
+              className="px-4 py-2 rounded-xl text-xs font-bold transition-all border bg-white/5 border-white/10 text-white/50 hover:bg-white/10"
+            >
+              PEŁNY EKRAN
+            </button>
+          </div>
+          <p className="text-xs text-slate-500">
+            Tryb HUD minimalizuje panel statystyk, aby nie zasłaniał obrazu.
           </p>
         </div>
       </div>
     </div>
   );
 };
+

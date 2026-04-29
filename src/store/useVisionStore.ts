@@ -12,6 +12,8 @@ interface VisionState {
   // Stan Kamery/Wejścia
   isCameraActive: boolean;
   confidenceThreshold: number;
+  isFullscreen: boolean;
+  isHUDOnly: boolean;
   
   // Metryki Wydajności
   fps: number;
@@ -24,6 +26,8 @@ interface VisionState {
   toggleCamera: () => void;
   setConfidenceThreshold: (threshold: number) => void;
   setMetrics: (metrics: { fps?: number; latency?: number; detectedCount?: number }) => void;
+  toggleFullscreen: () => void;
+  setHUDOnly: (val: boolean) => void;
 }
 
 export const useVisionStore = create<VisionState>((set) => ({
@@ -34,6 +38,8 @@ export const useVisionStore = create<VisionState>((set) => ({
   
   isCameraActive: false,
   confidenceThreshold: 0.7,
+  isFullscreen: false,
+  isHUDOnly: false,
   
   fps: 0,
   latency: 0,
@@ -44,5 +50,8 @@ export const useVisionStore = create<VisionState>((set) => ({
 
   toggleCamera: () => set((state) => ({ isCameraActive: !state.isCameraActive })),
   setConfidenceThreshold: (confidenceThreshold) => set({ confidenceThreshold }),
-  setMetrics: (metrics) => set((state) => ({ ...state, ...metrics }))
+  setMetrics: (metrics) => set((state) => ({ ...state, ...metrics })),
+  toggleFullscreen: () => set((state) => ({ isFullscreen: !state.isFullscreen })),
+  setHUDOnly: (isHUDOnly) => set({ isHUDOnly })
 }));
+
