@@ -25,9 +25,9 @@ export const ControlPanel: React.FC = () => {
         {/* Status Badge */}
         <div className="flex items-center gap-2">
           {status === 'idle' && <span className="px-3 py-1 bg-slate-700/50 text-slate-300 rounded-full text-xs font-mono border border-slate-600">INICJALIZACJA</span>}
-          {status === 'loading' && <span className="px-3 py-1 bg-amber-500/20 text-amber-300 rounded-full text-xs font-mono border border-amber-500/30 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> POBIERANIE MODELU</span>}
-          {status === 'ready' && <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-full text-xs font-mono border border-emerald-500/30 flex items-center gap-1"><Cpu size={12} /> GOTOWY (WEBGPU)</span>}
-          {status === 'error' && <span className="px-3 py-1 bg-rose-500/20 text-rose-300 rounded-full text-xs font-mono border border-rose-500/30 flex items-center gap-1"><AlertCircle size={12} /> BŁĄD</span>}
+          {status === 'loading' && <span className="px-3 py-1 bg-amber-500/20 text-amber-300 rounded-full text-xs font-mono border border-amber-500/30 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> ŁADOWANIE LOKALNE</span>}
+          {status === 'ready' && <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-full text-xs font-mono border border-emerald-500/30 flex items-center gap-1"><Cpu size={12} /> GOTOWY (LOKALNY + WEBGPU)</span>}
+          {status === 'error' && <span className="px-3 py-1 bg-rose-500/20 text-rose-300 rounded-full text-xs font-mono border border-rose-500/30 flex items-center gap-1"><AlertCircle size={12} /> BŁĄD MODELU</span>}
         </div>
       </div>
 
@@ -37,8 +37,14 @@ export const ControlPanel: React.FC = () => {
           <div className="flex items-start gap-2 text-rose-400">
             <AlertCircle size={16} className="mt-0.5 shrink-0" />
             <div className="space-y-1">
-              <p className="text-xs font-semibold uppercase">Szczegóły błędu:</p>
-              <p className="text-[11px] font-mono break-all">{errorMessage}</p>
+              <p className="text-xs font-semibold uppercase text-rose-500">Wymagana Akcja (Błąd ładowania):</p>
+              <p className="text-[11px] font-mono break-words leading-relaxed">
+                Upewnij się, że plik <b>model.onnx</b> znajduje się w folderze:<br/>
+                <code className="bg-rose-500/10 px-1 py-0.5 rounded">public/models/yolov8n/onnx/</code>
+              </p>
+              <p className="text-[10px] opacity-70 italic mt-1">
+                Szczegóły: {errorMessage}
+              </p>
             </div>
           </div>
         </div>
@@ -49,7 +55,7 @@ export const ControlPanel: React.FC = () => {
       {status === 'loading' && (
         <div className="w-full space-y-2 animate-in fade-in slide-in-from-top-4 duration-500">
           <div className="flex justify-between text-xs text-slate-400 font-mono">
-            <span>{message || 'Pobieranie wag sieci neuronowej...'}</span>
+            <span>{message || 'Wczytywanie lokalnych wag sieci neuronowej...'}</span>
             <span>{Math.round(progress)}%</span>
           </div>
           <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
@@ -58,8 +64,8 @@ export const ControlPanel: React.FC = () => {
               style={{ width: `${progress}%` }}
             />
           </div>
-          <p className="text-[10px] text-amber-500/70 mt-1">
-            Pierwsze uruchomienie wymaga pobrania ok. 40MB danych modelu. Zostaną one zapisane w pamięci podręcznej.
+          <p className="text-[10px] text-blue-400/70 mt-1">
+            Model jest ładowany z Twojego dysku (folder public/models/). To zapewnia 100% prywatności i niezawodności.
           </p>
         </div>
       )}

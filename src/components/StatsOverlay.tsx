@@ -9,7 +9,7 @@ export const StatsOverlay: React.FC = () => {
   const isCameraActive = useVisionStore((state) => state.isCameraActive);
   const isHUDOnly = useVisionStore((state) => state.isHUDOnly);
 
-  if (status !== 'ready' || !isCameraActive) return null;
+  if (!isCameraActive) return null;
 
   const getLatencyColor = (ms: number) => {
     if (ms < 100) return 'text-emerald-400';
@@ -80,6 +80,13 @@ export const StatsOverlay: React.FC = () => {
           <span className="text-xs sm:text-sm font-mono font-bold text-sky-400 tabular-nums">
             {detectedCount}
           </span>
+        </div>
+
+        {/* System Status */}
+        <div className="mt-1">
+           <div className={`text-[8px] uppercase tracking-[0.2em] font-black ${status === 'error' ? 'text-rose-500' : 'text-blue-400 opacity-80'}`}>
+              {status === 'loading' ? 'Initializing...' : status.toUpperCase()}
+           </div>
         </div>
       </div>
 

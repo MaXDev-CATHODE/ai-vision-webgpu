@@ -159,7 +159,11 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
             if (mode === 'ai') {
               activeWorker.postMessage({
                 type: 'detect',
-                data: { image: bitmap, threshold: confidenceThreshold }
+                data: { 
+                  image: bitmap, 
+                  threshold: confidenceThreshold,
+                  baseUrl: window.location.origin + import.meta.env.BASE_URL
+                }
               }, [bitmap]);
             } else {
               activeWorker.postMessage({

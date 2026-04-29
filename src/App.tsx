@@ -14,6 +14,7 @@ function App() {
   const toggleCamera = useVisionStore((state) => state.toggleCamera);
   const isCameraActive = useVisionStore((state) => state.isCameraActive);
   const isFullscreen = useVisionStore((state) => state.isFullscreen);
+  const toggleFullscreen = useVisionStore((state) => state.toggleFullscreen);
 
   return (
     <div className={`min-h-screen bg-slate-900 text-slate-50 flex flex-col items-center p-4 md:p-8 ${isFullscreen ? 'p-0 overflow-hidden' : 'justify-center'}`}>
@@ -42,6 +43,24 @@ function App() {
 
       {/* Main Content Area */}
       <div className={`w-full max-w-5xl flex-1 flex flex-col gap-6 relative ${isFullscreen ? 'max-w-none h-screen' : ''}`}>
+        {/* Floating controls for Fullscreen */}
+        {isFullscreen && (
+          <div className="fixed top-4 right-4 z-[110] flex gap-2">
+            <button 
+              onClick={toggleCamera}
+              className="px-4 py-2 bg-black/50 backdrop-blur-md border border-white/20 rounded-full text-xs font-bold text-white hover:bg-black/70"
+            >
+              {isCameraActive ? 'WYŁĄCZ' : 'WŁĄCZ'}
+            </button>
+            <button 
+              onClick={toggleFullscreen}
+              className="px-4 py-2 bg-blue-600/80 backdrop-blur-md border border-blue-400/30 rounded-full text-xs font-bold text-white hover:bg-blue-600"
+            >
+              ZAMKNIJ PEŁNY EKRAN
+            </button>
+          </div>
+        )}
+        
         {/* Camera Container */}
         <div className={`relative w-full rounded-2xl overflow-hidden shadow-2xl border border-slate-700/50 bg-black transition-all duration-500 ${
           isFullscreen 

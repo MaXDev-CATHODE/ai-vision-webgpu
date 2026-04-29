@@ -1,43 +1,17 @@
-import { pipeline, env, RawImage } from '@huggingface/transformers';
+import { pipeline, env } from '@huggingface/transformers';
 import { AI_CONFIG } from '../utils/aiConfig';
 
-// Diagnostics for Mobile Debugging
-console.log('AI Worker Start Diagnostics:', {
-    userAgent: navigator.userAgent,
-    hardwareConcurrency: navigator.hardwareConcurrency,
-    // @ts-ignore
-    deviceMemory: navigator.deviceMemory,
-    gpu: !!(navigator as any).gpu,
-    timestamp: new Date().toISOString()
-});
-
-// v3 environment configuration
-env.allowLocalModels = false;
-env.allowRemoteModels = true; 
+// v3 environment configuration - MUST BE SET BEFORE ANY PIPELINE CALL
+env.allowLocalModels = true;
+env.allowRemoteModels = false; 
 env.useBrowserCache = true;
-
-// Force ONNX Runtime configuration
-if (!env.backends) (env as any).backends = {};
-if (!env.backends.onnx) (env.backends as any).onnx = {};
-if (!env.backends.onnx.wasm) (env.backends.onnx as any).wasm = {};
+// Ścieżka do lokalnych modeli w folderze public - domyślnie root, ale będzie nadpisana przez baseUrl
+env.localModelPath = '/models/';
 
 // Detect mobile for specific optimizations
 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-if (isMobile) {
-    console.log('Mobile device detected, applying WASM compatibility fixes...');
-    // Disable multithreading and SIMD on mobile to avoid dynamic module fetch errors (.mjs)
-    // and requirements for COOP/COEP headers.
-    (env.backends.onnx.wasm as any).numThreads = 1;
-    (env.backends.onnx.wasm as any).simd = false;
-    (env.backends.onnx.wasm as any).proxy = false;
-}
 
-console.log('Current Transformers.js Env:', {
-    backends: env.backends,
-    allowRemoteModels: env.allowRemoteModels,
-    useBrowserCache: env.useBrowserCache,
-    isMobile
-});
+console.log('AI Worker Module Load. Configured for LOCAL models only.');
 
 class PipelineSingleton {
   static task = AI_CONFIG.task;
@@ -47,7 +21,7 @@ class PipelineSingleton {
   static async getInstance(progress_callback?: (progress: any) => void) {
     if (this.instance === null) {
       const isWebGPUSupported = !!(navigator as any).gpu;
-      const shouldTryWebGPU = isWebGPUSupported && !isMobile;
+      const shouldTryWebGPU = isWebGPUSupported;
       
       if (shouldTryWebGPU) {
         try {
@@ -143,6 +117,10 @@ self.addEventListener('message', async (event) => {
   const { type, data } = event.data;
 
   if (type === 'load_model') {
+    if (event.data.baseUrl) {
+      env.localModelPath = event.data.baseUrl + 'models/';
+      console.log('Worker: Adjusted localModelPath to:', env.localModelPath);
+    }
     try {
       await PipelineSingleton.getInstance((x) => {
         self.postMessage({ type: 'progress', data: x });
@@ -170,6 +148,9 @@ self.addEventListener('message', async (event) => {
 
     try {
       isProcessing = true;
+      if (data.baseUrl) {
+          env.localModelPath = data.baseUrl + 'models/';
+      }
       const detector = await PipelineSingleton.getInstance();
       
       const bitmap = data.image;
@@ -196,18 +177,12 @@ self.addEventListener('message', async (event) => {
       
       // Draw rescaled image
       offscreenCtx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+      
+      // In v3, we can pass ImageData directly which is faster
       const imageData = offscreenCtx.getImageData(0, 0, targetWidth, targetHeight);
 
-      let image;
-      try {
-        // Direct creation is faster than async read for small images
-        image = new RawImage(imageData.data, imageData.width, imageData.height, 4);
-      } catch (readErr) {
-        image = await (RawImage as any).read(imageData);
-      }
-
-      const output = await detector(image, {
-        threshold: data.threshold || 0.6, // Zwiększony threshold aby wyeliminować halucynacje
+      const output = await detector(imageData, {
+        threshold: data.threshold || AI_CONFIG.minConfidenceThreshold,
         percentage: true,
       });
 

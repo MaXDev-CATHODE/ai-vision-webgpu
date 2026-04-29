@@ -19,7 +19,8 @@ export class AIWorkerManager {
   static preloadModels() {
     // To uruchomi wczytywanie wag do pamięci RAM/VRAM z wyprzedzeniem
     const ai = this.getAIWorker();
-    ai.postMessage({ type: 'load_model' });
+    const baseUrl = window.location.origin + import.meta.env.BASE_URL;
+    ai.postMessage({ type: 'load_model', baseUrl });
     
     const scanner = this.getScannerWorker();
     scanner.postMessage({ type: 'init' });
