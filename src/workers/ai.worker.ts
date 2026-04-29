@@ -15,16 +15,27 @@ env.allowLocalModels = false;
 env.allowRemoteModels = true; 
 env.useBrowserCache = true;
 
+// Force ONNX Runtime configuration
+if (!env.backends) (env as any).backends = {};
+if (!env.backends.onnx) (env.backends as any).onnx = {};
+if (!env.backends.onnx.wasm) (env.backends.onnx as any).wasm = {};
+
+// Use CDN for WASM binaries to ensure they are found regardless of bundling
+(env.backends.onnx.wasm as any).wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
+
 // Detect mobile for specific optimizations
 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 if (isMobile) {
     console.log('Mobile device detected, applying WASM optimizations...');
-    // Disable multithreading on mobile to avoid COOP/COEP header requirements
-    if (env.backends?.onnx?.wasm) {
-        (env.backends.onnx.wasm as any).numThreads = 1;
-        (env.backends.onnx.wasm as any).proxy = false;
-    }
+    (env.backends.onnx.wasm as any).numThreads = 1;
+    (env.backends.onnx.wasm as any).proxy = false;
 }
+
+console.log('Current Transformers.js Env:', {
+    backends: env.backends,
+    allowRemoteModels: env.allowRemoteModels,
+    useBrowserCache: env.useBrowserCache
+});
 
 class PipelineSingleton {
   static task = 'object-detection';
@@ -34,10 +45,9 @@ class PipelineSingleton {
   static async getInstance(progress_callback?: (progress: any) => void) {
     if (this.instance === null) {
       const isWebGPUSupported = !!(navigator as any).gpu;
+      const shouldTryWebGPU = isWebGPUSupported && !isMobile;
       
-      // Attempt WebGPU only if supported and NOT mobile (or try anyway if you want, 
-      // but mobile often has "Failed to get adapter" even if navigator.gpu exists)
-      if (isWebGPUSupported) {
+      if (shouldTryWebGPU) {
         try {
           console.log('Attempting WebGPU initialization...');
           this.instance = await pipeline(this.task as any, this.model, {
@@ -52,37 +62,51 @@ class PipelineSingleton {
       }
 
       try {
-        console.log('Initializing with WASM/CPU fallback...');
+        console.log('Initializing with WASM fallback...');
         this.instance = await pipeline(this.task as any, this.model, {
           progress_callback,
-          device: 'wasm', // Explicitly specify wasm
+          device: 'wasm', 
         });
         console.log('Success: WASM backend');
+        return this.instance;
       } catch (err: any) {
-        console.error('WASM initialization failed:', err);
+        console.error('WASM fallback failed:', err);
         
-        // Retry without cache
-        if (env.useBrowserCache) {
-          console.warn('RETRY: Initializing without Browser Cache...');
-          env.useBrowserCache = false;
-          try {
+        try {
+            console.log('FINAL FALLBACK: Initializing with CPU...');
             this.instance = await pipeline(this.task as any, this.model, {
-              progress_callback,
-              device: 'wasm',
+                progress_callback,
+                device: 'cpu',
             });
-            console.log('Success after disabling cache');
-          } catch (retryErr: any) {
-            console.error('Final failure:', retryErr);
-            throw retryErr;
-          }
-        } else {
-          throw err;
+            console.log('Success: CPU backend');
+            return this.instance;
+        } catch (cpuErr: any) {
+            console.error('CPU fallback failed:', cpuErr);
+            
+            // Last resort: retry without cache
+            if (env.useBrowserCache) {
+                console.warn('RETRY: Initializing without Browser Cache...');
+                env.useBrowserCache = false;
+                try {
+                    this.instance = await pipeline(this.task as any, this.model, {
+                        progress_callback,
+                    });
+                    console.log('Success after disabling cache');
+                    return this.instance;
+                } catch (retryErr: any) {
+                    console.error('Critical failure after all attempts:', retryErr);
+                    throw retryErr;
+                }
+            } else {
+                throw cpuErr;
+            }
         }
       }
     }
     return this.instance;
   }
 }
+
 
 
 function calculateIoU(box1: any, box2: any) {
