@@ -1,73 +1,70 @@
-# React + TypeScript + Vite
+# 🤖 Real-Time AI Vision (Serverless WebGPU)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen.svg)](https://maxdev-cathode.github.io/ai-vision-webgpu/)
+[![GitHub license](https://img.shields.io/github/license/MaXDev-CATHODE/ai-vision-webgpu)](https://github.com/MaXDev-CATHODE/ai-vision-webgpu/blob/main/LICENSE)
+[![Vite](https://img.shields.io/badge/Vite-B73BFE?logo=vite&logoColor=FFD62D)](https://vitejs.dev/)
+[![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)](https://react.dev/)
 
-Currently, two official plugins are available:
+Eksperymentalna aplikacja typu **Serverless AI**, która demonstruje potęgę nowoczesnych przeglądarek. Wykorzystuje **WebGPU** oraz bibliotekę **Transformers.js** do uruchamiania zaawansowanych sieci neuronowych (Object Detection) w 100% po stronie klienta.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+> **Zero kosztów serwera. Zero przesyłania obrazu do chmury. 100% Prywatności.**
 
-## React Compiler
+---
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 🚀 Kluczowe Funkcje
 
-## Expanding the ESLint configuration
+- **Detekcja w czasie rzeczywistym:** Wykrywanie ponad 80 klas obiektów (ludzie, telefony, laptopy, zwierzęta) na żywo z kamery.
+- **WebGPU Inference:** Najwyższa wydajność dzięki bezpośredniemu dostępowi do rdzeni GPU użytkownika.
+- **Bezpieczeństwo:** Przetwarzanie obrazu odbywa się lokalnie — klatki z kamery nigdy nie opuszczają Twojej przeglądarki.
+- **Progressive Model Loading:** Model AI (ok. 40MB) jest pobierany asynchronicznie i zapisywany w cache (IndexedDB) dla błyskawicznego startu przy kolejnych wizytach.
+- **Web Worker Isolation:** Cała ciężka praca matematyczna AI odbywa się w osobnym wątku, dzięki czemu interfejs użytkownika pozostaje idealnie płynny (60 FPS).
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+---
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## 🛠 Stos Technologiczny
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+- **Core:** React 19 + TypeScript + Vite
+- **AI Engine:** [Transformers.js](https://huggingface.co/docs/transformers.js) (Hugging Face)
+- **Model:** `Xenova/detr-resnet-50` (ONNX Quantized)
+- **Stylizacja:** Tailwind CSS v4 + Glassmorphism Design
+- **State Management:** Zustand
+- **Deployment:** GitHub Pages
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+---
+
+## 📦 Jak to działa?
+
+1. **Inicjalizacja:** Aplikacja ładuje statyczne pliki z GitHub Pages.
+2. **Setup Workera:** Tworzony jest `Web Worker`, który asynchronicznie pobiera i kompiluje model sieci neuronowej.
+3. **Stream:** Po wyrażeniu zgody, strumień wideo z kamery jest przechwytywany i wysyłany klatka po klatce do Workera.
+4. **Inferencja:** Silnik AI (Transformers.js) analizuje piksele, używając WebGPU lub WebGL, i zwraca współrzędne wykrytych obiektów.
+5. **Render:** Wyniki są nakładane na przezroczysty `Canvas`, tworząc interaktywny interfejs w stylu "Heads-Up Display" (HUD).
+
+---
+
+## 🚦 Instalacja Lokalna
+
+```bash
+# Sklonuj repozytorium
+git clone https://github.com/MaXDev-CATHODE/ai-vision-webgpu.git
+
+# Wejdź do folderu
+cd ai-vision-webgpu
+
+# Zainstaluj zależności
+npm install
+
+# Uruchom serwer deweloperski
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+---
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## 📄 Licencja
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+Projekt udostępniony na licencji MIT. Możesz go dowolnie modyfikować i używać w celach edukacyjnych lub komercyjnych.
+
+---
+
+### Autor
+**MaXDev-CATHODE** - [GitHub](https://github.com/MaXDev-CATHODE)
