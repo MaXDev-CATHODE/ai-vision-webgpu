@@ -29,6 +29,7 @@ class PipelineSingleton {
           this.instance = await pipeline(this.task as any, this.model, {
             progress_callback,
             device: 'webgpu',
+            // @ts-ignore
             quantized: true,
           });
           console.log('Success: WebGPU backend');
@@ -43,6 +44,7 @@ class PipelineSingleton {
         this.instance = await pipeline(this.task as any, this.model, {
           progress_callback,
           device: 'wasm', 
+          // @ts-ignore
           quantized: true,
         });
         console.log('Success: WASM backend');
@@ -58,6 +60,7 @@ class PipelineSingleton {
                 this.instance = await pipeline(this.task as any, this.model, {
                     progress_callback,
                     device: 'wasm',
+                    // @ts-ignore
                     quantized: true,
                 });
                 console.log('Success after disabling cache');
