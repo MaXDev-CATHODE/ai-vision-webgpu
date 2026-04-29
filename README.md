@@ -1,11 +1,11 @@
-# 🤖 Real-Time AI Vision (Serverless WebGPU)
+# 🤖 Real-Time AI Vision & Universal Scanner (Serverless WebGPU)
 
 [![Live Demo](https://img.shields.io/badge/demo-live-brightgreen.svg)](https://maxdev-cathode.github.io/ai-vision-webgpu/)
 [![GitHub license](https://img.shields.io/github/license/MaXDev-CATHODE/ai-vision-webgpu)](https://github.com/MaXDev-CATHODE/ai-vision-webgpu/blob/main/LICENSE)
 [![Vite](https://img.shields.io/badge/Vite-B73BFE?logo=vite&logoColor=FFD62D)](https://vitejs.dev/)
 [![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)](https://react.dev/)
 
-Eksperymentalna aplikacja typu **Serverless AI**, która demonstruje potęgę nowoczesnych przeglądarek. Wykorzystuje **WebGPU** oraz bibliotekę **Transformers.js** do uruchamiania zaawansowanych sieci neuronowych (Object Detection) w 100% po stronie klienta.
+Eksperymentalna aplikacja typu **Universal Vision Suite**, która demonstruje potęgę nowoczesnych przeglądarek. Łączy w sobie zaawansowaną detekcję obiektów przez **WebGPU** oraz błyskawiczne skanowanie kodów QR i kreskowych przy użyciu natywnych API systemu.
 
 > **Zero kosztów serwera. Zero przesyłania obrazu do chmury. 100% Prywatności.**
 
@@ -13,33 +13,38 @@ Eksperymentalna aplikacja typu **Serverless AI**, która demonstruje potęgę no
 
 ## 🚀 Kluczowe Funkcje
 
-- **Detekcja w czasie rzeczywistym:** Wykrywanie ponad 80 klas obiektów (ludzie, telefony, laptopy, zwierzęta) na żywo z kamery z ultra-niskim opóźnieniem.
-- **YOLOv8 Nano Inference:** Wykorzystanie modelu YOLOv8, światowego lidera prędkości, dla płynności klasy Real-Time.
-- **WebGPU Acceleration:** Bezpośrednie wykorzystanie mocy karty graficznej (GPU) dla błyskawicznych obliczeń.
-- **Zero-Copy Image Transfer:** Wykorzystanie obiektów `ImageBitmap` oraz `Transferables` do przesyłania obrazu między wątkami bez obciążania pamięci RAM.
-- **Bezpieczeństwo:** Przetwarzanie obrazu odbywa się lokalnie — klatki z kamery nigdy nie opuszczają Twojej przeglądarki.
-- **Web Worker Isolation:** Cała ciężka praca matematyczna AI odbywa się w osobnym wątku, dzięki czemu interfejs użytkownika pozostaje idealnie płynny.
+### 🧠 Moduł AI Vision
+- **Detekcja w czasie rzeczywistym:** Wykrywanie ponad 80 klas obiektów (ludzie, telefony, laptopy, zwierzęta) na żywo z kamery.
+- **WebGPU Acceleration:** Bezpośrednie wykorzystanie mocy karty graficznej (GPU) dla błyskawicznych obliczeń sieci neuronowych.
+- **Serverless Inference:** Wykorzystanie modelu `yolos-tiny` uruchamianego lokalnie przez Transformers.js.
+
+### 🔍 Moduł Universal Scanner
+- **Skaner QR & Barcode:** Obsługa najpopularniejszych formatów (QR, EAN-13, Code 128, UPC).
+- **Native Speed:** Wykorzystanie **BarcodeDetector API** (Shape Detection API) dla natychmiastowej reakcji bez narzutu bibliotek zewnętrznych.
+- **Smart Actions:** Automatyczne wykrywanie linków URL, funkcja kopiowania do schowka i interaktywny HUD.
 
 ---
 
 ## 🛠 Stos Technologiczny
 
 - **Core:** React 19 + TypeScript + Vite
-- **AI Engine:** [Transformers.js](https://huggingface.co/docs/transformers.js) (Hugging Face)
-- **Model:** `Xenova/yolos-tiny` (ONNX Quantized)
+- **AI Engine:** [Transformers.js](https://huggingface.co/docs/transformers.js) (Hugging Face) + WebGPU
+- **Native Vision:** BarcodeDetector API (Shape Detection API)
 - **Stylizacja:** Tailwind CSS v4 + Glassmorphism Design
+- **Ikonografia:** Lucide React
 - **State Management:** Zustand
-- **Deployment:** GitHub Pages
+- **Multithreading:** Podwójna izolacja Web Worker (osobne wątki dla AI i Skanera)
 
 ---
 
-## 📦 Jak to działa?
+## 📦 Architektura Systemu
 
-1. **Inicjalizacja:** Aplikacja ładuje statyczne pliki z GitHub Pages.
-2. **Setup Workera:** Tworzony jest `Web Worker`, który asynchronicznie pobiera i kompiluje model YOLOv8.
-3. **Stream:** Po wyrażeniu zgody, strumień wideo jest przechwytywany i przesyłany jako surowa bitmapa (`ImageBitmap`) do Workera.
-4. **Inferencja:** Silnik AI analizuje klatkę na GPU (WebGPU) i zwraca współrzędne wykrytych obiektów.
-5. **Render:** Wyniki (Bounding Boxes) są nakładane na przezroczysty `Canvas` z inteligentnym systemem unikania kolizji etykiet.
+Aplikacja wykorzystuje hybrydowe podejście do przetwarzania wizyjnego:
+
+1. **AI Worker:** Zarządza cyklem życia modelu ONNX, pobieraniem wag i procesem inferencji WebGPU.
+2. **Scanner Worker:** Lekki wątek obsługujący natywne API detekcji kształtów, zapewniający 60 FPS podczas skanowania.
+3. **Zero-Copy Pipeline:** Przesyłanie obrazu z kamery jako surowej bitmapy (`ImageBitmap`) z flagą `Transferable`, co eliminuje opóźnienia związane z kopiowaniem pamięci.
+4. **Collision-Aware HUD:** Inteligentny system renderowania etykiet na Canvasie, który zapobiega nakładaniu się tekstów przy wielu wykrytych obiektach.
 
 ---
 
