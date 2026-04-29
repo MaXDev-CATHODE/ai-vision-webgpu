@@ -31,3 +31,5 @@ tasks.md
 .agent/
 .agents/
 scratch/
+test-results/
+tests/

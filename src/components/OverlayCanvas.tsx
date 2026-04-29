@@ -13,7 +13,8 @@ interface OverlayCanvasProps {
 
 export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const workerRef = useRef<Worker | null>(null);
+  const aiWorkerRef = useRef<Worker | null>(null);
+  const scannerWorkerRef = useRef<Worker | null>(null);
   const isProcessingRef = useRef(false);
   
   const [detections, setDetections] = useState<Detection[]>([]);
@@ -23,26 +24,29 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
   const isCameraActive = useVisionStore((state) => state.isCameraActive);
   const confidenceThreshold = useVisionStore((state) => state.confidenceThreshold);
   const setMetrics = useVisionStore((state) => state.setMetrics);
+  const mode = useVisionStore((state) => state.mode);
+  const setScanResults = useVisionStore((state) => state.setScanResults);
 
   const lastDetectionTimeRef = useRef<number>(0);
   const frameStartTimeRef = useRef<number>(0);
 
-  // Inicjalizacja Workera
+  // Inicjalizacja Workerów
   useEffect(() => {
-    // Vite pozwala na import workerów z końcówką ?worker
-    const worker = new Worker(new URL('../workers/ai.worker.ts', import.meta.url), {
-      type: 'module'
-    });
-    
-    workerRef.current = worker;
+    // Worker AI
+    const aiWorker = new Worker(new URL('../workers/ai.worker.ts', import.meta.url), { type: 'module' });
+    aiWorkerRef.current = aiWorker;
 
-    worker.onmessage = (e) => {
+    // Worker Skanera (QR/Barcode)
+    const scannerWorker = new Worker(new URL('../workers/scanner.worker.ts', import.meta.url), { type: 'module' });
+    scannerWorkerRef.current = scannerWorker;
+
+    aiWorker.onmessage = (e) => {
       const { type, data } = e.data;
+      if (mode !== 'ai' && type !== 'progress' && type !== 'ready') return;
 
       if (type === 'progress') {
         setStatus('loading');
         if (data.status === 'downloading' || data.status === 'progress') {
-          // data.progress jest ułamkiem 0-100 dla danego pliku (Transformers.js pobiera model w kawałkach)
           setProgress(data.progress || 0, `Pobieranie: ${data.file || 'model'}...`);
         } else if (data.status === 'done') {
           setProgress(100, `Zakończono pobieranie ${data.file}`);
@@ -51,61 +55,79 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
 
       if (type === 'ready') {
         setStatus('ready');
-        setProgress(100, 'Model gotowy do działania');
+        setProgress(100, 'Model AI gotowy');
       }
 
       if (type === 'detect_result') {
-        const now = performance.now();
-        const latency = Math.round(now - frameStartTimeRef.current);
-        const fps = lastDetectionTimeRef.current 
-          ? Math.round(1000 / (now - lastDetectionTimeRef.current)) 
-          : 0;
-
-        setMetrics({
-          latency,
-          fps,
-          detectedCount: data.length
-        });
-
-        lastDetectionTimeRef.current = now;
-        setDetections(data);
-        isProcessingRef.current = false;
+        handleResult(data);
       }
       
       if (type === 'error') {
-        console.error('Błąd silnika AI:', data);
-        setStatus('error', data);
-        setProgress(0, 'Wystąpił błąd podczas ładowania modelu.');
-        isProcessingRef.current = false; // Resetujemy blokadę nawet przy błędzie
+        handleError(data);
+      }
+    };
+
+    scannerWorker.onmessage = (e) => {
+      const { type, data } = e.data;
+      if (mode === 'ai') return;
+
+      if (type === 'ready') {
+        setStatus('ready');
       }
 
+      if (type === 'scan_result') {
+        handleResult(data);
+      }
+
+      if (type === 'error') {
+        handleError(data);
+      }
     };
 
-    // Zleć załadowanie modelu natychmiast po zamontowaniu
-    worker.postMessage({ type: 'load_model' });
+    const handleResult = (data: any) => {
+      const now = performance.now();
+      const latency = Math.round(now - frameStartTimeRef.current);
+      const fps = lastDetectionTimeRef.current ? Math.round(1000 / (now - lastDetectionTimeRef.current)) : 0;
+
+      setMetrics({ latency, fps, detectedCount: data.length });
+      lastDetectionTimeRef.current = now;
+
+      if (mode === 'ai') {
+        setDetections(data);
+      } else {
+        setScanResults(data);
+      }
+      isProcessingRef.current = false;
+    };
+
+    const handleError = (err: any) => {
+      console.error('Błąd workera:', err);
+      setStatus('error', String(err));
+      isProcessingRef.current = false;
+    };
+
+    aiWorker.postMessage({ type: 'load_model' });
+    scannerWorker.postMessage({ type: 'init' });
 
     return () => {
-      worker.terminate();
+      aiWorker.terminate();
+      scannerWorker.terminate();
     };
-  }, [setStatus, setProgress]);
+  }, [setStatus, setProgress, mode, setMetrics, setScanResults]);
 
   // Pętla Przechwytywania Klatek (Frame Capture Loop)
   useEffect(() => {
     let animationFrameId: number;
 
     const processFrame = () => {
-      // Jeśli kamera jest wyłączona, upewnijmy się że nie rysujemy starych boxów
       if (!isCameraActive) {
         setDetections([]);
         return;
       }
 
-      // Procesujemy klatkę TYLKO jeśli worker skończył poprzednią, aby zapobiec kolejkowaniu setek klatek (Lag/Freeze)
-      if (videoElement && workerRef.current && !isProcessingRef.current && videoElement.readyState === 4) {
-        // Aby przesłać obraz do Transformers.js w workerze, tworzymy tymczasowy canvas 
-        // i zrzucamy na niego zrzut klatki wideo jako Base64 (lub ImageBitmap).
-        // OPTYMALIZACJA: ImageBitmap zamiast Base64
-        // Tworzymy binarną kopię klatki w mniejszej rozdzielczości (640px)
+      const activeWorker = mode === 'ai' ? aiWorkerRef.current : scannerWorkerRef.current;
+
+      if (videoElement && activeWorker && !isProcessingRef.current && videoElement.readyState === 4) {
         const MAX_SIZE = 640;
         const scale = Math.min(1, MAX_SIZE / Math.max(videoElement.videoWidth, videoElement.videoHeight));
         const width = videoElement.videoWidth * scale;
@@ -118,12 +140,19 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
           resizeHeight: height,
           resizeQuality: 'low'
         }).then(bitmap => {
-          if (workerRef.current) {
+          if (activeWorker) {
             frameStartTimeRef.current = performance.now();
-            workerRef.current.postMessage({
-              type: 'detect',
-              data: { image: bitmap, threshold: confidenceThreshold }
-            }, [bitmap]); // Przeniesienie własności (Transferable) - zero kopiowania w RAM!
+            if (mode === 'ai') {
+              activeWorker.postMessage({
+                type: 'detect',
+                data: { image: bitmap, threshold: confidenceThreshold }
+              }, [bitmap]);
+            } else {
+              activeWorker.postMessage({
+                type: 'scan',
+                data: { image: bitmap, mode: mode }
+              }, [bitmap]);
+            }
           } else {
             isProcessingRef.current = false;
           }
@@ -132,33 +161,29 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
         });
       }
 
-      // Wywołuj się rekurencyjnie co klatkę (zazwyczaj 60 razy na sekundę)
       animationFrameId = requestAnimationFrame(processFrame);
     };
 
     processFrame();
 
     return () => cancelAnimationFrame(animationFrameId);
-  }, [videoElement, isCameraActive, confidenceThreshold]);
+  }, [videoElement, isCameraActive, confidenceThreshold, mode]);
 
-  // Renderowanie Ramek na Canvasie widocznym dla użytkownika
+  // Renderowanie Ramek na Canvasie
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !videoElement) return;
 
-    // Canvas musi idealnie nałożyć się na tag wideo
     canvas.width = videoElement.clientWidth;
     canvas.height = videoElement.clientHeight;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Czyszczenie poprzedniej klatki
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!isCameraActive) return;
 
-    // Obliczanie realnej powierzchni wideo (uwzględniając object-fit: contain)
     const vWidth = videoElement.videoWidth;
     const vHeight = videoElement.videoHeight;
     const cWidth = canvas.width;
@@ -170,134 +195,113 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
     let drawWidth, drawHeight, offsetX, offsetY;
 
     if (cRatio > vRatio) {
-      // Kontener jest szerszy niż wideo (paski po bokach)
       drawHeight = cHeight;
       drawWidth = cHeight * vRatio;
       offsetX = (cWidth - drawWidth) / 2;
       offsetY = 0;
     } else {
-      // Kontener jest wyższy niż wideo (paski góra/dół)
       drawWidth = cWidth;
       drawHeight = cWidth / vRatio;
       offsetX = 0;
       offsetY = (cHeight - drawHeight) / 2;
     }
 
-    // Pomocnicza funkcja do generowania koloru na podstawie nazwy klasy
     const getColor = (label: string) => {
       let hash = 0;
       for (let i = 0; i < label.length; i++) {
         hash = label.charCodeAt(i) + ((hash << 5) - hash);
       }
       const h = Math.abs(hash % 360);
-      return `hsl(${h}, 70%, 50%)`; // Żywe kolory HSL
+      return `hsl(${h}, 70%, 50%)`;
     };
 
-    // Tablica do śledzenia zajętych obszarów przez etykiety (collision detection)
     const occupiedRects: { x: number, y: number, w: number, h: number }[] = [];
 
-    // Rysowanie wyników AI
-    detections.forEach(det => {
-      const color = getColor(det.label);
-      
-      // Skalowanie koordynatów
-      const x = det.box.xmin * drawWidth + offsetX;
-      const y = det.box.ymin * drawHeight + offsetY;
-      const w = (det.box.xmax - det.box.xmin) * drawWidth;
-      const h = (det.box.ymax - det.box.ymin) * drawHeight;
+    if (mode === 'ai') {
+      detections.forEach(det => {
+        const color = getColor(det.label);
+        const x = det.box.xmin * drawWidth + offsetX;
+        const y = det.box.ymin * drawHeight + offsetY;
+        const w = (det.box.xmax - det.box.xmin) * drawWidth;
+        const h = (det.box.ymax - det.box.ymin) * drawHeight;
 
-      // --- PREMIUM VISUALS: Neon Box ---
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 3;
-      
-      // Glow effect
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 10;
-      
-      // Rysujemy tylko narożniki dla futurystycznego wyglądu (HUD style)
-      const cornerLen = Math.min(w, h, 20);
-      
-      // Top-Left
-      ctx.beginPath();
-      ctx.moveTo(x, y + cornerLen);
-      ctx.lineTo(x, y);
-      ctx.lineTo(x + cornerLen, y);
-      ctx.stroke();
-      
-      // Top-Right
-      ctx.beginPath();
-      ctx.moveTo(x + w - cornerLen, y);
-      ctx.lineTo(x + w, y);
-      ctx.lineTo(x + w, y + cornerLen);
-      ctx.stroke();
-      
-      // Bottom-Right
-      ctx.beginPath();
-      ctx.moveTo(x + w, y + h - cornerLen);
-      ctx.lineTo(x + w, y + h);
-      ctx.lineTo(x + w - cornerLen, y + h);
-      ctx.stroke();
-      
-      // Bottom-Left
-      ctx.beginPath();
-      ctx.moveTo(x + cornerLen, y + h);
-      ctx.lineTo(x, y + h);
-      ctx.lineTo(x, y + h - cornerLen);
-      ctx.stroke();
+        drawHUDBox(ctx, x, y, w, h, color, `${det.label} ${Math.round(det.score * 100)}%`, occupiedRects);
+      });
+    } else {
+      const scanResults = useVisionStore.getState().scanResults;
+      scanResults.forEach(res => {
+        const color = mode === 'qr' ? '#22c55e' : '#f59e0b';
+        const inputScaleX = drawWidth / videoElement.videoWidth;
+        const inputScaleY = drawHeight / videoElement.videoHeight;
 
-      // Cienka ramka łącząca (półprzezroczysta)
-      ctx.shadowBlur = 0;
-      ctx.globalAlpha = 0.2;
-      ctx.strokeRect(x, y, w, h);
-      ctx.globalAlpha = 1.0;
+        const x = res.boundingBox.x * inputScaleX + offsetX;
+        const y = res.boundingBox.y * inputScaleY + offsetY;
+        const w = res.boundingBox.width * inputScaleX;
+        const h = res.boundingBox.height * inputScaleY;
 
-      // Przygotowanie etykiety
-      const labelText = `${det.label} ${Math.round(det.score * 100)}%`;
-      ctx.font = 'bold 11px "Outfit", system-ui, sans-serif';
-      const metrics = ctx.measureText(labelText);
-      const textWidth = metrics.width;
-      const labelHeight = 20;
-      const padding = 10;
-      const fullWidth = textWidth + padding * 2;
-      
-      let labelX = x;
-      let labelY = y - labelHeight - 4;
-      if (labelY < 0) labelY = y + 4;
+        drawHUDBox(ctx, x, y, w, h, color, `${res.format.toUpperCase()}: ${res.rawValue}`, occupiedRects);
+      });
+    }
 
-      // Unikanie kolizji
-      let attempts = 0;
-      while (attempts < 5) {
-        const collision = occupiedRects.some(r => {
-          return !(labelX + fullWidth < r.x || labelX > r.x + r.w || labelY + labelHeight < r.y || labelY > r.y + r.h);
-        });
-        if (collision) {
-          labelY += labelHeight + 4;
-          attempts++;
-        } else break;
-      }
-      occupiedRects.push({ x: labelX, y: labelY, w: fullWidth, h: labelHeight });
+  }, [detections, videoElement, isCameraActive, mode]);
 
-      // Szklana etykieta (Glassmorphism)
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-      ctx.beginPath();
-      ctx.roundRect(labelX, labelY, fullWidth, labelHeight, 4);
-      ctx.fill();
-      
-      // Akcent boczny koloru
-      ctx.fillStyle = color;
-      ctx.fillRect(labelX, labelY, 3, labelHeight);
-      
-      // Tekst
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(labelText.toUpperCase(), labelX + padding + 2, labelY + 14);
-    });
+  const drawHUDBox = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string, labelText: string, occupiedRects: any[]) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    
+    const cornerLen = Math.min(w, h, 20);
+    
+    // Narożniki
+    ctx.beginPath();
+    ctx.moveTo(x, y + cornerLen); ctx.lineTo(x, y); ctx.lineTo(x + cornerLen, y);
+    ctx.moveTo(x + w - cornerLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cornerLen);
+    ctx.moveTo(x + w, y + h - cornerLen); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w - cornerLen, y + h);
+    ctx.moveTo(x + cornerLen, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - cornerLen);
+    ctx.stroke();
 
-  }, [detections, videoElement, isCameraActive]);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 0.2;
+    ctx.strokeRect(x, y, w, h);
+    ctx.globalAlpha = 1.0;
+
+    ctx.font = 'bold 11px "Outfit", system-ui, sans-serif';
+    const metrics = ctx.measureText(labelText);
+    const textWidth = metrics.width;
+    const labelHeight = 20;
+    const padding = 10;
+    const fullWidth = textWidth + padding * 2;
+    
+    let labelX = x;
+    let labelY = y - labelHeight - 4;
+    if (labelY < 0) labelY = y + 4;
+
+    let attempts = 0;
+    while (attempts < 5) {
+      const collision = occupiedRects.some(r => {
+        return !(labelX + fullWidth < r.x || labelX > r.x + r.w || labelY + labelHeight < r.y || labelY > r.y + r.h);
+      });
+      if (collision) {
+        labelY += labelHeight + 4;
+        attempts++;
+      } else break;
+    }
+    occupiedRects.push({ x: labelX, y: labelY, w: fullWidth, h: labelHeight });
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    ctx.beginPath();
+    ctx.roundRect(labelX, labelY, fullWidth, labelHeight, 4);
+    ctx.fill();
+    
+    ctx.fillStyle = color;
+    ctx.fillRect(labelX, labelY, 3, labelHeight);
+    
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(labelText, labelX + padding + 2, labelY + 14);
+  };
 
   return (
-    <canvas 
-      ref={canvasRef} 
-      className="absolute top-0 left-0 w-full h-full pointer-events-none"
-    />
+    <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full pointer-events-none" />
   );
 };

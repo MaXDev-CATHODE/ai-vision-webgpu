@@ -1,6 +1,18 @@
 import { create } from 'zustand';
 
-type ModelStatus = 'idle' | 'loading' | 'ready' | 'error';
+export type VisionMode = 'ai' | 'qr' | 'barcode';
+
+export interface ScanResult {
+  rawValue: string;
+  format: string;
+  boundingBox: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  cornerPoints: { x: number; y: number }[];
+}
 
 interface VisionState {
   // Stan Modelu
@@ -14,6 +26,8 @@ interface VisionState {
   confidenceThreshold: number;
   isFullscreen: boolean;
   isHUDOnly: boolean;
+  mode: VisionMode;
+  scanResults: ScanResult[];
   
   // Metryki Wydajności
   fps: number;
@@ -28,7 +42,11 @@ interface VisionState {
   setMetrics: (metrics: { fps?: number; latency?: number; detectedCount?: number }) => void;
   toggleFullscreen: () => void;
   setHUDOnly: (val: boolean) => void;
+  setMode: (mode: VisionMode) => void;
+  setScanResults: (results: ScanResult[]) => void;
 }
+
+type ModelStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export const useVisionStore = create<VisionState>((set) => ({
   status: 'idle',
@@ -40,6 +58,8 @@ export const useVisionStore = create<VisionState>((set) => ({
   confidenceThreshold: 0.7,
   isFullscreen: false,
   isHUDOnly: false,
+  mode: 'ai',
+  scanResults: [],
   
   fps: 0,
   latency: 0,
@@ -52,6 +72,8 @@ export const useVisionStore = create<VisionState>((set) => ({
   setConfidenceThreshold: (confidenceThreshold) => set({ confidenceThreshold }),
   setMetrics: (metrics) => set((state) => ({ ...state, ...metrics })),
   toggleFullscreen: () => set((state) => ({ isFullscreen: !state.isFullscreen })),
-  setHUDOnly: (isHUDOnly) => set({ isHUDOnly })
+  setHUDOnly: (isHUDOnly) => set({ isHUDOnly }),
+  setMode: (mode) => set({ mode, scanResults: [] }),
+  setScanResults: (scanResults) => set({ scanResults, detectedCount: scanResults.length })
 }));
 

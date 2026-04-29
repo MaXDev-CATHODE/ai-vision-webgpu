@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useVisionStore } from '../store/useVisionStore';
 import { OverlayCanvas } from './OverlayCanvas';
+import { ResultPanel } from './ResultPanel';
 
 interface CameraFeedProps {
   onVideoReady?: (video: HTMLVideoElement) => void;
@@ -89,6 +90,7 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({ onVideoReady }) => {
         className="w-full h-full object-contain"
       />
       <OverlayCanvas videoElement={videoElement} />
+      <ResultPanel />
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useVisionStore } from '../store/useVisionStore';
-import { BrainCircuit, Cpu, Settings2, Loader2, AlertCircle } from 'lucide-react';
+import { BrainCircuit, Cpu, Settings2, Loader2, AlertCircle, QrCode, Barcode, Scan } from 'lucide-react';
 
 export const ControlPanel: React.FC = () => {
   const status = useVisionStore((state) => state.status);
@@ -12,6 +12,8 @@ export const ControlPanel: React.FC = () => {
   const isHUDOnly = useVisionStore((state) => state.isHUDOnly);
   const setHUDOnly = useVisionStore((state) => state.setHUDOnly);
   const toggleFullscreen = useVisionStore((state) => state.toggleFullscreen);
+  const mode = useVisionStore((state) => state.mode);
+  const setMode = useVisionStore((state) => state.setMode);
 
   return (
     <div className="w-full glass rounded-2xl p-6 flex flex-col gap-6">
@@ -86,6 +88,37 @@ export const ControlPanel: React.FC = () => {
           </div>
           <p className="text-xs text-slate-500">
             Zwiększ, aby wyeliminować błędy. Zmniejsz, jeśli AI nic nie wykrywa.
+          </p>
+        </div>
+
+        {/* Mode Selector */}
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-300">
+            <Scan size={16} className="text-slate-400" />
+            Tryb Pracy
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: 'ai', label: 'AI VISION', icon: BrainCircuit },
+              { id: 'qr', label: 'SKANER QR', icon: QrCode },
+              { id: 'barcode', label: 'BARCODE', icon: Barcode },
+            ].map((m) => (
+              <button
+                key={m.id}
+                onClick={() => setMode(m.id as any)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold transition-all border ${
+                  mode === m.id 
+                  ? 'bg-blue-500/20 border-blue-500/50 text-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.2)]' 
+                  : 'bg-white/5 border-white/10 text-white/40 hover:bg-white/10 hover:text-white/60'
+                }`}
+              >
+                <m.icon size={14} />
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-slate-500">
+            Przełącz silnik przetwarzania obrazu.
           </p>
         </div>
 
