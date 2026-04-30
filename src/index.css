@@ -10,9 +10,9 @@ body {
   margin: 0;
   padding: 0;
   background-color: var(--color-background);
-  color: #f8fafc; /* slate-50 */
+  color: #f8fafc;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  overflow: hidden; /* Prevent scrolling when video is active */
+  overflow-x: hidden;
 }
 
 /* Glassmorphism utilities */

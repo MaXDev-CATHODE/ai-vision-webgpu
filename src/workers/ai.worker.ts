@@ -1,91 +1,51 @@
-import { pipeline, env, RawImage } from '@huggingface/transformers';
-import { AI_CONFIG } from '../utils/aiConfig';
+import { AutoModel, env, Tensor } from '@huggingface/transformers';
 
-// Konfiguracja v3
+// KONFIGURACJA
 env.allowLocalModels = false; 
 env.allowRemoteModels = true; 
-env.useBrowserCache = false; 
+env.useBrowserCache = true; 
 env.remotePathTemplate = '{model}/'; 
 
-// WASM optimizations
+const origin = self.location.origin;
+env.remoteHost = `${origin}/ai-vision-webgpu/models/`;
+
 if (env.backends.onnx.wasm) {
-  env.backends.onnx.wasm.numThreads = 1; 
-  env.backends.onnx.wasm.simd = true;
+  // @ts-ignore
+  env.backends.onnx.wasm.proxy = false; 
+  // @ts-ignore
+  env.backends.onnx.wasm.wasmPaths = `${origin}/ai-vision-webgpu/wasm/`;
 }
+
+// Bufory wielokrotnego użytku dla wydajności
+let offscreenCanvas: OffscreenCanvas | null = null;
+let offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
 
 const log = (msg: string) => self.postMessage({ status: 'log', message: msg });
 
-async function resolveBestModelHost(modelName: string): Promise<string> {
-  const origin = self.location.origin;
-  const hostsToTry = [
-    `${origin}/ai-vision-webgpu/models/Xenova/`, 
-    `${origin}/models/Xenova/`,                 
-    `${origin}/ai-vision-webgpu/models/`, 
-    `${origin}/models/`,
-  ];
-
-  for (const host of hostsToTry) {
-    try {
-      const testUrl = `${host}${modelName}/config.json`;
-      log(`Worker: Testing model path: ${testUrl}`);
-      const response = await fetch(testUrl, { method: 'GET' }); 
-      const contentType = response.headers.get('content-type') || '';
-      
-      if (response.ok && !contentType.includes('text/html')) {
-        log(`Worker: Found valid model host: ${host}`);
-        return host;
-      } else {
-        log(`Worker: Path ${host} returned OK but it's HTML (SPA fallback). Skipping.`);
-      }
-    } catch (e: any) {
-      log(`Worker: Error testing ${host}: ${e.message}`);
-    }
-  }
-  
-  log("Worker: Could not auto-detect model host, falling back to default.");
-  return hostsToTry[0];
-}
-
 class PipelineSingleton {
-  static model = AI_CONFIG.model;
+  static modelId = 'Xenova/yolov8n';
   static instance: any = null;
 
   static async getInstance(progress_callback?: (progress: any) => void) {
     if (this.instance === null) {
-      env.remoteHost = await resolveBestModelHost(this.model);
-      const modelId = this.model;
-      
-      log(`Worker: Requesting model: ${modelId} via host: ${env.remoteHost}`);
-
-      const isWebGPUSupported = !!(navigator as any).gpu;
-      
+      log(`Worker: Initializing UNIVERSAL DECODER (WebGPU)...`);
       try {
-        log('Attempting pipeline initialization...');
-        this.instance = await pipeline('object-detection', modelId, {
+        const isWebGPUSupported = !!(navigator as any).gpu;
+        const device = isWebGPUSupported ? 'webgpu' : 'wasm';
+        
+        const model = await AutoModel.from_pretrained(this.modelId, {
           progress_callback,
-          device: isWebGPUSupported ? 'webgpu' : 'wasm',
+          device: device,
           // @ts-ignore
-          tokenizer: null, 
+          model_file: 'model.onnx',
+          // @ts-ignore
+          quantized: false,
         });
 
-        log('Success: Pipeline initialized');
-
-        // PANCERNY PATCH: przechwyć wywołanie forward i zmapuj klucze
-        if (this.instance.model) {
-          const model = this.instance.model;
-          const originalForward = model.forward.bind(model);
-          model.forward = async (inputs: any, ...args: any[]) => {
-            if (inputs.pixel_values && !inputs.images) {
-               inputs.images = inputs.pixel_values;
-            }
-            return originalForward(inputs, ...args);
-          };
-          log('Success: Model forward method patched for "images" input');
-        }
-
-        return this.instance;
+        this.instance = model;
+        log(`Universal Model loaded on ${device}.`);
       } catch (err: any) {
-        log(`CRITICAL FAILURE: ${err.message}`);
+        log(`LOAD ERROR: ${err.message}`);
         throw err;
       }
     }
@@ -108,87 +68,170 @@ self.onmessage = async (event: MessageEvent) => {
     return;
   }
 
-  if (action === 'detect') {
-    log(`Worker: Received detect request for image. Action: ${action}`);
+  if (action === 'detect' && image) {
     try {
-      const detector = await PipelineSingleton.getInstance();
-      const processor = (detector as any).processor || (detector as any).image_processor;
-      const model = (detector as any).model;
-
-      // 1. Convert ImageBitmap to RawImage for processing stability in v3
-      const canvas = new OffscreenCanvas(image.width, image.height);
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error("OffscreenCanvas context failed");
-      ctx.drawImage(image, 0, 0);
-      const imageData = ctx.getImageData(0, 0, image.width, image.height);
-      const rawImage = new RawImage(new Uint8Array(imageData.data), image.width, image.height, 4);
-      const inputs = await processor(rawImage);
+      const model = await PipelineSingleton.getInstance();
+      const t0 = performance.now();
       
-      // 2. Use pipeline for automatic post-processing
-      // Our forward patch in Singleton will handle the key mapping
-      const outputs = await model.forward({ 
-        images: inputs.pixel_values,
-        pixel_values: inputs.pixel_values
-      });
+      const size = 640;
+      // Inicjalizacja canvasa raz
+      if (!offscreenCanvas) {
+        offscreenCanvas = new OffscreenCanvas(size, size);
+        offscreenCtx = offscreenCanvas.getContext('2d', { alpha: false, desynchronized: true });
+      }
+      
+      if (!offscreenCtx) return;
+      offscreenCtx.drawImage(image, 0, 0, size, size);
+      const imageData = offscreenCtx.getImageData(0, 0, size, size);
+      const data8 = imageData.data;
+      
+      // Normalizacja Mean/Std (ImageNet) wymagana przez Transformers.js YOLOv8
+      const floatData = new Float32Array(3 * size * size);
+      const mean = [0.485, 0.456, 0.406];
+      const std = [0.229, 0.224, 0.225];
+      
+      for (let i = 0; i < size * size; i++) {
+        const i4 = i << 2;
+        // R G B (Planar format [1, 3, 640, 640])
+        floatData[i] = (data8[i4] / 255.0 - mean[0]) / std[0]; 
+        floatData[size * size + i] = (data8[i4 + 1] / 255.0 - mean[1]) / std[1]; 
+        floatData[2 * size * size + i] = (data8[i4 + 2] / 255.0 - mean[2]) / std[2]; 
+      }
+      
+      image.close(); // Zwolnienie Bitmapy
+      const t1 = performance.now();
+      
+      const inputTensor = new Tensor('float32', floatData, [1, 3, size, size]);
+      
+      let outputs;
+      try {
+        // Niektóre modele wolą 'images', inne 'pixel_values'
+        outputs = await model({ images: inputTensor });
+      } catch (e) {
+        outputs = await model({ pixel_values: inputTensor });
+      }
 
-      // 3. Manual YOLOv8 Decoding (most stable approach for v3 compatibility)
-      const output0 = outputs.output0;
-      const data = output0.data;
-      const [_batch, num_features, num_anchors] = output0.dims; // [1, 84, 8400]
+      const output0 = outputs.output0 || outputs.logits || Object.values(outputs)[0] as any;
+      const data = output0.data as Float32Array;
+      const dims = output0.dims; 
+
+      let num_features: number;
+      let num_anchors: number;
+      let transposed = false;
+
+      // Wykrywanie orientacji tensora [features, anchors] vs [anchors, features]
+      if (dims[1] < dims[2]) {
+        num_features = dims[1];
+        num_anchors = dims[2];
+        transposed = false;
+      } else {
+        num_anchors = dims[1];
+        num_features = dims[2];
+        transposed = true;
+      }
       
       const detections = [];
       const confLimit = threshold || 0.4;
-      
-      for (let i = 0; i < num_anchors; ++i) {
-        let maxScore = -1;
-        let classId = -1;
-        
-        // Find best class
-        for (let c = 4; c < num_features; ++c) {
-          const score = data[c * num_anchors + i];
-          if (score > maxScore) {
-            maxScore = score;
-            classId = c - 4;
+      // Wyliczamy threshold w przestrzeni logitów raz
+      const thresholdLogit = -Math.log(1 / confLimit - 1); 
+
+      const isPose = num_features === 56;
+      const t2 = performance.now(); // Koniec modelu, początek post-processingu
+
+      // Optymalizacja pętli: Wyciągnięcie warunku transposed na zewnątrz
+      if (transposed) {
+        for (let i = 0; i < num_anchors; ++i) {
+          let score = 0;
+          let classId = 0;
+          const rowOffset = i * num_features;
+
+          if (isPose) {
+            const logit = data[rowOffset + 4];
+            if (logit < thresholdLogit) continue;
+            score = 1 / (1 + Math.exp(-logit));
+            classId = 0;
+          } else {
+            let maxLogit = -Infinity;
+            let bestClass = 0;
+            for (let c = 4; c < num_features; ++c) {
+              const val = data[rowOffset + c];
+              if (val > maxLogit) {
+                maxLogit = val;
+                bestClass = c - 4;
+              }
+            }
+            if (maxLogit < thresholdLogit) continue;
+            score = 1 / (1 + Math.exp(-maxLogit));
+            classId = bestClass;
           }
-        }
-        
-        if (maxScore > confLimit) {
-          const cx = data[0 * num_anchors + i];
-          const cy = data[1 * num_anchors + i];
-          const w = data[2 * num_anchors + i];
-          const h = data[3 * num_anchors + i];
-          
-          // YOLOv8 output is typically [0-640] if input was 640x640
-          const xmin = (cx - w/2);
-          const ymin = (cy - h/2);
-          const xmax = (cx + w/2);
-          const ymax = (cy + h/2);
+
+          const cx = data[rowOffset + 0] / 640;
+          const cy = data[rowOffset + 1] / 640;
+          const w = data[rowOffset + 2] / 640;
+          const h = data[rowOffset + 3] / 640;
           
           detections.push({
             label: COCO_CLASSES[classId] || `obj_${classId}`,
-            score: maxScore,
-            box: {
-              xmin: Math.max(0, xmin),
-              ymin: Math.max(0, ymin),
-              xmax: Math.min(1, xmax),
-              ymax: Math.min(1, ymax)
+            score: score,
+            box: { xmin: cx - w/2, ymin: cy - h/2, xmax: cx + w/2, ymax: cy + h/2 }
+          });
+        }
+      } else {
+        // Not transposed [features, anchors]
+        const c0 = 0, c1 = num_anchors, c2 = 2 * num_anchors, c3 = 3 * num_anchors, c4 = 4 * num_anchors;
+        for (let i = 0; i < num_anchors; ++i) {
+          let score = 0;
+          let classId = 0;
+
+          if (isPose) {
+            const logit = data[c4 + i];
+            if (logit < thresholdLogit) continue;
+            score = 1 / (1 + Math.exp(-logit));
+            classId = 0;
+          } else {
+            let maxLogit = -Infinity;
+            let bestClass = 0;
+            for (let c = 4; c < num_features; ++c) {
+              const val = data[c * num_anchors + i];
+              if (val > maxLogit) {
+                maxLogit = val;
+                bestClass = c - 4;
+              }
             }
+            if (maxLogit < thresholdLogit) continue;
+            score = 1 / (1 + Math.exp(-maxLogit));
+            classId = bestClass;
+          }
+
+          const cx = data[c0 + i] / 640;
+          const cy = data[c1 + i] / 640;
+          const w = data[c2 + i] / 640;
+          const h = data[c3 + i] / 640;
+          
+          detections.push({
+            label: COCO_CLASSES[classId] || `obj_${classId}`,
+            score: score,
+            box: { xmin: cx - w/2, ymin: cy - h/2, xmax: cx + w/2, ymax: cy + h/2 }
           });
         }
       }
 
-      // Simple NMS (Non-Maximum Suppression) - be more strict
-      const finalDetections = nms(detections, 0.4);
+      const finalDetections = nms(detections, 0.45);
+      const t3 = performance.now();
       
-      log(`Success: Found ${finalDetections.length} objects`);
-      self.postMessage({ status: 'result', output: Array.isArray(finalDetections) ? finalDetections : [] });
+      // Logowanie wydajności co 50 klatek, aby nie spamować
+      if (Math.random() < 0.02) {
+        log(`PERF: Pre:${(t1-t0).toFixed(1)}ms, Model:${(t2-t1).toFixed(1)}ms, Post:${(t3-t2).toFixed(1)}ms`);
+        if (isPose) log(`INFO: Wykryto model typu POSE (56 cech).`);
+      }
+
+      self.postMessage({ status: 'result', output: finalDetections });
+      
     } catch (error: any) {
       self.postMessage({ status: 'error', error: error.message });
     }
   }
 };
-
-// --- HELPER FUNCTIONS ---
 
 const COCO_CLASSES = [
   "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
@@ -205,11 +248,9 @@ function nms(boxes: any[], iouThreshold: number) {
   boxes.sort((a, b) => b.score - a.score);
   const result = [];
   const selected = new Array(boxes.length).fill(true);
-  
-  for (let i = 0; i < boxes.length; i++) {
+  for (let i = 0; i < Math.min(boxes.length, 100); i++) {
     if (!selected[i]) continue;
     result.push(boxes[i]);
-    
     for (let j = i + 1; j < boxes.length; j++) {
       if (!selected[j]) continue;
       if (calculateIoU(boxes[i].box, boxes[j].box) > iouThreshold) {
@@ -225,13 +266,11 @@ function calculateIoU(box1: any, box2: any) {
   const y1 = Math.max(box1.ymin, box2.ymin);
   const x2 = Math.min(box1.xmax, box2.xmax);
   const y2 = Math.min(box1.ymax, box2.ymax);
-  
   const width = Math.max(0, x2 - x1);
   const height = Math.max(0, y2 - y1);
   const intersectionArea = width * height;
-  
-  const box1Area = (box1.xmax - box1.xmin) * (box1.ymax - box1.ymin);
-  const box2Area = (box2.xmax - box2.xmin) * (box2.ymax - box2.ymin);
-  
-  return intersectionArea / (box1Area + box2Area - intersectionArea);
+  const box1Area = Math.max(0, (box1.xmax - box1.xmin) * (box1.ymax - box1.ymin));
+  const box2Area = Math.max(0, (box2.xmax - box2.xmin) * (box2.ymax - box2.ymin));
+  const unionArea = box1Area + box2Area - intersectionArea;
+  return unionArea > 0 ? intersectionArea / unionArea : 0;
 }
