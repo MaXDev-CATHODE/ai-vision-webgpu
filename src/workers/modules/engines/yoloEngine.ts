@@ -10,82 +10,131 @@ export class YoloEngine implements IAIEngine {
 
     async loadModel(modelId: string, progress_callback?: (progress: any) => void): Promise<void> {
         try {
-            console.log(`[YoloEngine] Inicjalizacja silnika ONNX (manualny pre-proc) dla ${modelId}...`);
+            console.log(`[YoloEngine] Inicjalizacja silnika ONNX dla ${modelId}...`);
 
             const baseUrl = (import.meta as any).env.BASE_URL || '/';
-            const modelUrl = `${self.location.origin}${baseUrl}models/yolov11/onnx/model.onnx`;
+            
+            const potentialUrls = [
+                `${self.location.origin}${baseUrl}models/yolov11/onnx/model.onnx`.replace(/\/+/g, '/').replace(':/', '://'),
+                `${self.location.origin}/models/yolov11/onnx/model.onnx`,
+                // Fallback do HuggingFace (bez no-cache dla CORS)
+                `https://huggingface.co/onnx-community/yolov11n-v2/resolve/main/onnx/model.onnx`,
+                `./models/yolov11/onnx/model.onnx`
+            ];
 
-            console.log(`[YoloEngine] Pobieranie modelu z: ${modelUrl}`);
+            let response: Response | null = null;
+            let finalUrl = '';
 
-            // Symulacja progressu dla UI
-            if (progress_callback) progress_callback({ 
-                status: 'progress', 
-                progress: { progress: 50, file: 'model.onnx' } 
-            });
+            for (const url of potentialUrls) {
+                try {
+                    console.log(`[YoloEngine] Próba pobrania z: ${url}`);
+                    // Dla HuggingFace nie używamy no-cache ze względu na CORS
+                    const fetchOptions: RequestInit = url.includes('huggingface') ? {} : { cache: 'no-cache' };
+                    const res = await fetch(url, fetchOptions);
+                    
+                    if (res.ok) {
+                        const contentType = res.headers.get('content-type');
+                        if (contentType && contentType.includes('text/html')) {
+                            console.warn(`[YoloEngine] URL ${url} zwrócił HTML.`);
+                            continue;
+                        }
+                        response = res;
+                        finalUrl = url;
+                        break;
+                    }
+                } catch (e) {
+                    console.warn(`[YoloEngine] Błąd fetch dla ${url}:`, e);
+                }
+            }
 
-            this.session = await ort.InferenceSession.create(modelUrl, {
-                executionProviders: ['webgpu'],
-            });
+            if (!response) {
+                throw new Error(`Błąd: Nie znaleziono pliku modelu. Sprawdź czy public/models/yolov11/onnx/model.onnx istnieje.`);
+            }
+            
+            console.log(`[YoloEngine] Sukces! Pobieranie z: ${finalUrl}`);
+            const arrayBuffer = await response.arrayBuffer();
+            await this.initSession(arrayBuffer, progress_callback);
 
-            if (progress_callback) progress_callback({ 
-                status: 'progress', 
-                progress: { progress: 100, file: 'model.onnx' } 
-            });
-
-            console.log(`[YoloEngine] Silnik ONNX gotowy (WebGPU).`);
         } catch (error: any) {
-            console.error(`[YoloEngine] Błąd ładowania ONNX:`, error);
+            console.error(`[YoloEngine] Błąd ładowania:`, error);
             throw error;
         }
+    }
+
+    private async initSession(arrayBuffer: ArrayBuffer, progress_callback?: (p: any) => void) {
+        if (progress_callback) progress_callback({ 
+            status: 'progress', 
+            progress: { progress: 95, file: 'model.onnx' } 
+        });
+
+        this.session = await ort.InferenceSession.create(arrayBuffer, {
+            executionProviders: ['webgpu'],
+        });
+
+        if (progress_callback) progress_callback({ 
+            status: 'progress', 
+            progress: { progress: 100, file: 'model.onnx' } 
+        });
+
+        console.log(`[YoloEngine] Sesja ONNX utworzona pomyślnie.`);
     }
 
     async detect(image: any, threshold: number): Promise<DetectionResult[]> {
         if (!this.session) return [];
 
-        // 1. Manualny Preprocessing
-        // Transformers.js RawImage jest świetny do odczytu różnych formatów
-        const rawImage = await RawImage.read(image);
-        
-        // Skalowanie do 640x640
-        const resized = await rawImage.resize(640, 640);
-        
-        // Dane są w formacie HWC (RGBA lub RGB)
-        // YOLO potrzebuje CHW (RGB)
-        const { data } = resized; // data to Uint8ClampedArray [640*640*3]
-        
-        const floatData = new Float32Array(3 * 640 * 640);
-        for (let i = 0; i < 640 * 640; i++) {
-            floatData[i] = data[i * 3] / 255.0;           // R
-            floatData[i + 640 * 640] = data[i * 3 + 1] / 255.0; // G
-            floatData[i + 2 * 640 * 640] = data[i * 3 + 2] / 255.0; // B
+        try {
+            let rawImage: RawImage;
+            
+            // Rozwiązanie błędu "Unsupported input type: object"
+            try {
+                // Transformers.js natywny odczyt
+                rawImage = await RawImage.read(image);
+            } catch (readError) {
+                // Ręczna konwersja dla ImageBitmap (którego RawImage.read może nie lubić w workerze)
+                if (image && typeof image === 'object' && 'width' in image && 'height' in image) {
+                    const canvas = new OffscreenCanvas(image.width, image.height);
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) throw new Error("OffscreenCanvas context failed");
+                    ctx.drawImage(image, 0, 0);
+                    const imageData = ctx.getImageData(0, 0, image.width, image.height);
+                    rawImage = new RawImage(imageData.data, image.width, image.height, 4);
+                } else {
+                    throw new Error(`Niewspierany typ wejścia. Spróbuj przekazać ImageBitmap.`);
+                }
+            }
+            
+            const resized = await rawImage.resize(640, 640);
+            const { data } = resized; 
+            
+            const floatData = new Float32Array(3 * 640 * 640);
+            for (let i = 0; i < 640 * 640; i++) {
+                floatData[i] = data[i * 3] / 255.0;           // R
+                floatData[i + 640 * 640] = data[i * 3 + 1] / 255.0; // G
+                floatData[i + 2 * 640 * 640] = data[i * 3 + 2] / 255.0; // B
+            }
+
+            const inputTensor = new ort.Tensor('float32', floatData, [1, 3, 640, 640]);
+            const feeds: Record<string, ort.Tensor> = {};
+            feeds[this.session.inputNames[0]] = inputTensor;
+            
+            const outputs = await this.session.run(feeds);
+            const outputTensor = outputs[this.session.outputNames[0]];
+            
+            return this.postProcess(outputTensor, threshold / 100);
+        } catch (error: any) {
+            console.error(`[YoloEngine] Błąd inferencji:`, error);
+            throw error;
         }
-
-        const inputTensor = new ort.Tensor('float32', floatData, [1, 3, 640, 640]);
-
-        // 2. Inferencja
-        const feeds: Record<string, ort.Tensor> = {};
-        feeds[this.session.inputNames[0]] = inputTensor;
-        
-        const outputs = await this.session.run(feeds);
-        const outputTensor = outputs[this.session.outputNames[0]];
-        
-        // 3. Post-processing (YOLOv11: [1, 84, 8400])
-        return this.postProcess(outputTensor, threshold / 100);
     }
 
     private postProcess(output: ort.Tensor, threshold: number): DetectionResult[] {
         const data = output.data as Float32Array;
-        const dims = output.dims; // [1, 84, 8400]
-        const numAnchors = dims[2];
-        
+        const numAnchors = output.dims[2];
         const results: DetectionResult[] = [];
 
         for (let i = 0; i < numAnchors; i++) {
-            // Szukamy najwyższego wyniku klasy
             let maxScore = -1;
             let classId = -1;
-
-            // Klasy zaczynają się od indeksu 4 (0,1,2,3 to boxy)
             for (let c = 0; c < 80; c++) {
                 const score = data[numAnchors * (c + 4) + i];
                 if (score > maxScore) {
@@ -100,19 +149,18 @@ export class YoloEngine implements IAIEngine {
                 const w = data[numAnchors * 2 + i];
                 const h = data[numAnchors * 3 + i];
 
-                const x1 = (cx - w / 2) / 640;
-                const y1 = (cy - h / 2) / 640;
-                const x2 = (cx + w / 2) / 640;
-                const y2 = (cy + h / 2) / 640;
-
                 results.push({
                     label: this.getClassLabel(classId),
                     score: maxScore,
-                    box: { xmin: x1, ymin: y1, xmax: x2, ymax: y2 }
+                    box: { 
+                        xmin: (cx - w / 2) / 640, 
+                        ymin: (cy - h / 2) / 640, 
+                        xmax: (cx + w / 2) / 640, 
+                        ymax: (cy + h / 2) / 640 
+                    }
                 });
             }
         }
-
         return this.nms(results, 0.45);
     }
 
@@ -120,23 +168,18 @@ export class YoloEngine implements IAIEngine {
         detections.sort((a, b) => b.score - a.score);
         const result: DetectionResult[] = [];
         const seen = new Set<number>();
-
-        // Optymalizacja: ograniczamy liczbę detekcji przed NMS
         const topDetections = detections.slice(0, 300);
 
         for (let i = 0; i < topDetections.length; i++) {
             if (seen.has(i)) continue;
-
             result.push(topDetections[i]);
             for (let j = i + 1; j < topDetections.length; j++) {
                 if (seen.has(j)) continue;
-
                 if (this.calculateIoU(topDetections[i].box, topDetections[j].box) > iouThreshold) {
                     seen.add(j);
                 }
             }
         }
-
         return result;
     }
 
@@ -145,12 +188,10 @@ export class YoloEngine implements IAIEngine {
         const y1 = Math.max(box1.ymin, box2.ymin);
         const x2 = Math.min(box1.xmax, box2.xmax);
         const y2 = Math.min(box1.ymax, box2.ymax);
-
         const intersection = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
         const area1 = (box1.xmax - box1.xmin) * (box1.ymax - box1.ymin);
         const area2 = (box2.xmax - box2.xmin) * (box2.ymax - box2.ymin);
         const union = area1 + area2 - intersection;
-
         return intersection / union;
     }
 

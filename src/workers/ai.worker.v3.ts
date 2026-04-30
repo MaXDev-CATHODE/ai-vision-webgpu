@@ -51,6 +51,7 @@ self.onmessage = async (e) => {
   if (type === 'detect' || e.data.action === 'detect') {
     try {
       const { image, threshold, modelId: mId } = payload || e.data;
+      console.log(`[Worker] Detect requested. Image type: ${typeof image}, Constructor: ${image?.constructor?.name}`);
       const modelId = mId || 'yolov11';
       const engine = await EngineManager.getEngine(modelId);
       const results = await engine.detect(image, threshold);
