@@ -1,12 +1,13 @@
 import { AutoModel, env, Tensor } from '@huggingface/transformers';
 
 // KONFIGURACJA
-env.allowLocalModels = false; 
+env.allowLocalModels = true; // Pozwalamy na lokalne modele, jeśli są poprawne
 env.allowRemoteModels = true; 
 env.useBrowserCache = true; 
 env.remotePathTemplate = '{model}/'; 
 
 const origin = self.location.origin;
+// Domyślnie szukamy lokalnie, ale jeśli modelId się nie zgadza, pobierze z HF
 env.remoteHost = `${origin}/ai-vision-webgpu/models/`;
 
 if (env.backends.onnx.wasm) {
@@ -23,12 +24,12 @@ let offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
 const log = (msg: string) => self.postMessage({ status: 'log', message: msg });
 
 class PipelineSingleton {
-  static modelId = 'Xenova/yolov8n';
+  static modelId = 'Xenova/yolov8n'; // 80 klas COCO (Detection)
   static instance: any = null;
 
   static async getInstance(progress_callback?: (progress: any) => void) {
     if (this.instance === null) {
-      log(`Worker: Initializing UNIVERSAL DECODER (WebGPU)...`);
+      log(`Worker: Inicjalizacja silnika detekcji (80 KLAS COCO)...`);
       try {
         const isWebGPUSupported = !!(navigator as any).gpu;
         const device = isWebGPUSupported ? 'webgpu' : 'wasm';
