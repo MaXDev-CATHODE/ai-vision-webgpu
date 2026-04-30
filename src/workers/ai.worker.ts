@@ -1,13 +1,12 @@
 import { AutoModel, env, Tensor } from '@huggingface/transformers';
 
 // KONFIGURACJA
-env.allowLocalModels = true; // Pozwalamy na lokalne modele, jeśli są poprawne
-env.allowRemoteModels = true; 
+env.allowLocalModels = true; 
+env.allowRemoteModels = false; 
 env.useBrowserCache = true; 
 env.remotePathTemplate = '{model}/'; 
 
 const origin = self.location.origin;
-// Domyślnie szukamy lokalnie, ale jeśli modelId się nie zgadza, pobierze z HF
 env.remoteHost = `${origin}/ai-vision-webgpu/models/`;
 
 if (env.backends.onnx.wasm) {
@@ -24,12 +23,12 @@ let offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
 const log = (msg: string) => self.postMessage({ status: 'log', message: msg });
 
 class PipelineSingleton {
-  static modelId = 'Xenova/yolov8n'; // 80 klas COCO (Detection)
+  static modelId = 'Xenova/yolov8n'; // Powrót do standardowej ścieżki
   static instance: any = null;
 
   static async getInstance(progress_callback?: (progress: any) => void) {
     if (this.instance === null) {
-      log(`Worker: Inicjalizacja silnika detekcji (80 KLAS COCO)...`);
+      log(`Worker: Ładowanie LOKALNEGO silnika detekcji (80 KLAS COCO)...`);
       try {
         const isWebGPUSupported = !!(navigator as any).gpu;
         const device = isWebGPUSupported ? 'webgpu' : 'wasm';
@@ -219,11 +218,12 @@ self.onmessage = async (event: MessageEvent) => {
 
       const finalDetections = nms(detections, 0.45);
       const t3 = performance.now();
-      
-      // Logowanie wydajności co 50 klatek, aby nie spamować
-      if (Math.random() < 0.02) {
-        log(`PERF: Pre:${(t1-t0).toFixed(1)}ms, Model:${(t2-t1).toFixed(1)}ms, Post:${(t3-t2).toFixed(1)}ms`);
+
+      // Logowanie wydajności (tymczasowo 100% dla diagnostyki)
+      if (true) {
+        log(`PERF: Pre:${(t1-t0).toFixed(1)}ms, Model:${(t2-t1).toFixed(1)}ms, Post:${(t3-t2).toFixed(1)}ms | Features: ${num_features}`);
         if (isPose) log(`INFO: Wykryto model typu POSE (56 cech).`);
+        else log(`INFO: Wykryto model typu DETECTION (${num_features} cech).`);
       }
 
       self.postMessage({ status: 'result', output: finalDetections });
