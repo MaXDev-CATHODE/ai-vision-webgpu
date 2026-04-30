@@ -29,12 +29,26 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({ onVideoReady }) => {
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          // Wait until video has loaded its metadata to start processing
-          videoRef.current.onloadedmetadata = () => {
+          videoRef.current.onloadedmetadata = async () => {
             videoRef.current?.play();
-            // Set element to state to trigger OverlayCanvas update
             setVideoElement(videoRef.current);
             
+            // T005: Próba włączenia ciągłego autofocusa (jeśli wspierany)
+            try {
+              const track = stream?.getVideoTracks()[0];
+              if (track) {
+                const capabilities = track.getCapabilities() as any;
+                if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+                  await track.applyConstraints({
+                    advanced: [{ focusMode: 'continuous' }]
+                  } as any);
+                  console.log('[Camera] Autofocus: continuous enabled');
+                }
+              }
+            } catch (focusErr) {
+              console.warn('[Camera] Autofocus nie jest wspierany:', focusErr);
+            }
+
             if (onVideoReady && videoRef.current) {
               onVideoReady(videoRef.current);
             }

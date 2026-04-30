@@ -41,7 +41,7 @@ export const useDetection = (videoElement: HTMLVideoElement | null) => {
         setProgress(100, 'Silnik AI gotowy');
       }
 
-      if (messageType === 'result' || messageType === 'scan_result') {
+      if (messageType === 'result') {
         const now = performance.now();
         const latency = Math.round(now - frameStartTimeRef.current);
         const fps = lastDetectionTimeRef.current ? Math.round(1000 / (now - lastDetectionTimeRef.current)) : 0;
@@ -53,12 +53,20 @@ export const useDetection = (videoElement: HTMLVideoElement | null) => {
           inferenceTime: metrics?.inferenceTime || 0
         });
 
-        if (mode === 'ai') {
-          setDetections(messageData);
-        } else {
-          setScanResults(messageData);
-        }
+        setDetections(messageData);
+        lastDetectionTimeRef.current = now;
+      } else if (messageType === 'scan_result') {
+        const now = performance.now();
+        const latency = Math.round(now - frameStartTimeRef.current);
         
+        setMetrics({
+          latency,
+          fps: lastDetectionTimeRef.current ? Math.round(1000 / (now - lastDetectionTimeRef.current)) : 0,
+          detectedCount: messageData.length,
+          inferenceTime: 0
+        });
+
+        setScanResults(messageData);
         lastDetectionTimeRef.current = now;
       }
 
