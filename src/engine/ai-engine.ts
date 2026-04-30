@@ -1,4 +1,4 @@
-import { pipeline, env, AutoModel, AutoProcessor, RawImage } from '@huggingface/transformers';
+import { pipeline, env, RawImage } from '@huggingface/transformers';
 
 /**
  * Konfiguracja środowiska Transformers.js
