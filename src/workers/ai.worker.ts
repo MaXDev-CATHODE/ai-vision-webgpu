@@ -42,8 +42,10 @@ class PipelineSingleton {
           quantized: false,
         });
 
+        const output_shape = model.config.num_labels || (model.session?.outputs?.[0]?.dims?.[1]);
         this.instance = model;
-        log(`Universal Model loaded on ${device}.`);
+        log(`Universal Model loaded on ${device}. Output size: ${output_shape}`);
+        return { model, device, output_shape };
       } catch (err: any) {
         log(`LOAD ERROR: ${err.message}`);
         throw err;
@@ -58,10 +60,10 @@ self.onmessage = async (event: MessageEvent) => {
 
   if (action === 'init') {
     try {
-      await PipelineSingleton.getInstance((progress) => {
+      const { output_shape, device } = await PipelineSingleton.getInstance((progress) => {
         self.postMessage({ status: 'progress', progress });
       });
-      self.postMessage({ status: 'ready' });
+      self.postMessage({ status: 'ready', features: output_shape, device });
     } catch (error: any) {
       self.postMessage({ status: 'error', error: error.message });
     }
@@ -85,17 +87,15 @@ self.onmessage = async (event: MessageEvent) => {
       const imageData = offscreenCtx.getImageData(0, 0, size, size);
       const data8 = imageData.data;
       
-      // Normalizacja Mean/Std (ImageNet) wymagana przez Transformers.js YOLOv8
+      // Normalizacja: YOLOv8 oczekuje [0, 1] bez Mean/Std ImageNet
       const floatData = new Float32Array(3 * size * size);
-      const mean = [0.485, 0.456, 0.406];
-      const std = [0.229, 0.224, 0.225];
       
       for (let i = 0; i < size * size; i++) {
         const i4 = i << 2;
         // R G B (Planar format [1, 3, 640, 640])
-        floatData[i] = (data8[i4] / 255.0 - mean[0]) / std[0]; 
-        floatData[size * size + i] = (data8[i4 + 1] / 255.0 - mean[1]) / std[1]; 
-        floatData[2 * size * size + i] = (data8[i4 + 2] / 255.0 - mean[2]) / std[2]; 
+        floatData[i] = data8[i4] / 255.0; 
+        floatData[size * size + i] = data8[i4 + 1] / 255.0; 
+        floatData[2 * size * size + i] = data8[i4 + 2] / 255.0; 
       }
       
       image.close(); // Zwolnienie Bitmapy
