@@ -117,14 +117,14 @@ export class YoloEngine implements IAIEngine {
             const outputTensor = outputs[this.session.outputNames[0]];
             
             // 2. POST-PROCESSING (Korekta letterbox)
-            return this.postProcess(outputTensor, threshold / 100, padX, padY, scale);
+            return this.postProcess(outputTensor, threshold / 100, padX, padY);
         } catch (error: any) {
             console.error(`[YoloEngine] Błąd inferencji:`, error);
             return [];
         }
     }
 
-    private postProcess(output: ort.Tensor, threshold: number, padX: number, padY: number, scale: number): DetectionResult[] {
+    private postProcess(output: ort.Tensor, threshold: number, padX: number, padY: number): DetectionResult[] {
         const data = output.data as Float32Array;
         const numAnchors = output.dims[2];
         const results: DetectionResult[] = [];
