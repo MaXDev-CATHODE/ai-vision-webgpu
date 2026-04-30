@@ -9,4 +9,9 @@ export default defineConfig({
     tailwindcss(),
   ],
   base: '/ai-vision-webgpu/',
+  server: {
+    watch: {
+      ignored: ['**/venv-yolo/**']
+    }
+  }
 })

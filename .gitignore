@@ -35,3 +35,7 @@ test-results/
 tests/
 AGENTS.md
 walkthrough.md
+venv-yolo/
+*.pt
+*.onnx
+!public/models/**/model.onnx
