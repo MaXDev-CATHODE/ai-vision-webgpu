@@ -13,18 +13,41 @@ export interface ScanResult {
   cornerPoints: { x: number; y: number }[];
 }
 
+/**
+ * Zwraca listę wspieranych formatów przez przeglądarkę
+ */
+export async function getSupportedFormats(): Promise<string[]> {
+  if (!isBarcodeDetectorSupported()) return [];
+  // @ts-ignore
+  return await BarcodeDetector.getSupportedFormats();
+}
+
 export async function detectCodes(image: ImageBitmap, mode: 'qr' | 'barcode'): Promise<ScanResult[]> {
   if (!isBarcodeDetectorSupported()) {
-    throw new Error('BarcodeDetector API is not supported in this browser.');
+    throw new Error('BarcodeDetector API nie jest wspierany w tej przeglądarce (wymagany Chrome/Android lub Chrome/Mac).');
   }
 
+  // Pobieramy wspierane formaty dla pewności
+  const supported = await getSupportedFormats();
+  
   // Specyfikacja formatów w zależności od trybu
-  const formats = mode === 'qr' 
-    ? ['qr_code'] 
-    : ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'data_matrix'];
+  let formats: string[] = [];
+  if (mode === 'qr') {
+    formats = ['qr_code'].filter(f => supported.includes(f));
+  } else {
+    // Próbujemy włączyć jak najwięcej popularnych formatów barcodów
+    const targetFormats = ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'data_matrix', 'itf', 'pdf417'];
+    formats = targetFormats.filter(f => supported.includes(f));
+  }
+
+  // Jeśli brak wspieranych formatów dla wybranego trybu
+  if (formats.length === 0) {
+    // Jeśli pusty, spróbujmy bez formatów (automatyczna detekcja wszystkiego co wspiera system)
+    formats = supported;
+  }
 
   try {
-    // @ts-ignore - BarcodeDetector might not be in types yet
+    // @ts-ignore
     const detector = new BarcodeDetector({ formats });
     const detections = await detector.detect(image);
 
@@ -41,6 +64,6 @@ export async function detectCodes(image: ImageBitmap, mode: 'qr' | 'barcode'): P
     }));
   } catch (err) {
     console.error('Błąd detekcji kodów:', err);
-    return [];
+    throw err; // Rzucamy dalej do workera
   }
 }

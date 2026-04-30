@@ -55,6 +55,37 @@ function App() {
   const isFullscreen = useVisionStore((state) => state.isFullscreen);
   const toggleFullscreen = useVisionStore((state) => state.toggleFullscreen);
 
+  // Natywne Fullscreen API (dla mobilnych)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement && isFullscreen) {
+        // Jeśli wyszliśmy z fullscreena przyciskiem systemowym (ESC / Back)
+        useVisionStore.setState({ isFullscreen: false });
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    
+    if (isFullscreen) {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(err => {
+          console.warn('Błąd Fullscreen API:', err);
+        });
+      }
+    } else {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+    }
+
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, [isFullscreen]);
+
+  const toggleCamera = useVisionStore((state) => state.toggleCamera);
+  const isCameraActive = useVisionStore((state) => state.isCameraActive);
+  const isFullscreen = useVisionStore((state) => state.isFullscreen);
+  const toggleFullscreen = useVisionStore((state) => state.toggleFullscreen);
+
   return (
     <div className={`min-h-screen bg-slate-900 text-slate-50 flex flex-col items-center p-4 md:p-8 ${isFullscreen ? 'p-0 overflow-hidden' : 'justify-center'}`}>
       {/* Header - Hidden in fullscreen */}

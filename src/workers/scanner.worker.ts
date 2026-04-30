@@ -1,11 +1,14 @@
-import { detectCodes } from '../utils/scannerUtils';
+import { detectCodes, isBarcodeDetectorSupported } from '../utils/scannerUtils';
 
 // Scanner Worker for QR and Barcode detection
 self.addEventListener('message', async (event) => {
   const { type, data } = event.data;
 
   if (type === 'init') {
-    self.postMessage({ type: 'ready' });
+    console.log('[ScannerWorker] Initializing...');
+    const supported = isBarcodeDetectorSupported();
+    console.log(`[ScannerWorker] BarcodeDetector supported: ${supported}`);
+    self.postMessage({ type: 'ready', supported });
   }
 
   if (type === 'scan') {
@@ -14,6 +17,7 @@ self.addEventListener('message', async (event) => {
       const results = await detectCodes(image, mode);
       self.postMessage({ type: 'scan_result', data: results });
     } catch (err) {
+      console.error('[ScannerWorker] Scan error:', err);
       self.postMessage({ type: 'error', data: String(err) });
     } finally {
       // Bardzo ważne: zwalniamy bitmapę w workerze
