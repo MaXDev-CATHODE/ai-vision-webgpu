@@ -36,8 +36,10 @@ tests/
 AGENTS.md
 walkthrough.md
 venv-yolo/
-*.pt
 *.onnx
-!public/models/**/model.onnx
+!public/models/**/*.onnx
+!public/models/**/*.json
+!public/models/**/*.bin
+!public/models/**/*.txt
 playwright-report/
 playwright-report/index.html

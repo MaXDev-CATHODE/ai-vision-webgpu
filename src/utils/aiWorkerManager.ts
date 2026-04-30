@@ -4,7 +4,8 @@ export class AIWorkerManager {
   
   static getAIWorker(): Worker {
     if (!this.aiWorker) {
-      this.aiWorker = new Worker(new URL('../workers/ai.worker.v3.ts?v=' + Date.now(), import.meta.url), { type: 'module' });
+      // Używamy standardowego importu dla Vite, aby poprawnie obsłużył ścieżki na produkcji
+      this.aiWorker = new Worker(new URL('../workers/ai.worker.v3.ts', import.meta.url), { type: 'module' });
     }
     return this.aiWorker;
   }

@@ -39,8 +39,8 @@ export const ControlPanel: React.FC = () => {
             <div className="space-y-1">
               <p className="text-xs font-semibold uppercase text-rose-500">Wymagana Akcja (Błąd ładowania):</p>
               <p className="text-[11px] font-mono break-words leading-relaxed">
-                Upewnij się, że plik <b>model.onnx</b> znajduje się w folderze:<br/>
-                <code className="bg-rose-500/10 px-1 py-0.5 rounded">public/models/yolov8n/onnx/</code>
+                Upewnij się, że plik <b>model.onnx</b> znajduje się w folderze modelu.<br/>
+                <code className="bg-rose-500/10 px-1 py-0.5 rounded">Check developer console (F12) for paths</code>
               </p>
               <p className="text-[10px] opacity-70 italic mt-1">
                 Szczegóły: {errorMessage}

@@ -1,51 +1,33 @@
-import { pipeline, env, RawImage } from '@huggingface/transformers';
+import { env, RawImage } from '@huggingface/transformers';
+import { ModelLoader } from './modules/modelLoader';
 
-// KONFIGURACJA ŚRODOWISKA
-env.allowLocalModels = false; // Na razie pobieramy z Hub, potem dodamy opcję local
-env.allowRemoteModels = true; 
-env.useBrowserCache = true; 
-
-const log = (msg: string) => {
-    console.log(`[AI Worker v3] ${msg}`);
-};
+// KONFIGURACJA ŚRODOWISKA PRZENIESIONA DO ModelLoader
 
 class PipelineSingleton {
-  static modelId = 'onnx-community/yolov11n'; 
+  static modelId = 'onnx-community/yolov10n'; 
   static instance: any = null;
 
   static async getInstance(progress_callback?: (progress: any) => void) {
     if (this.instance === null) {
-      log(`Próba inicjalizacji modelu ${this.modelId} z WebGPU...`);
-      try {
-        this.instance = await pipeline('object-detection', this.modelId, {
-          progress_callback,
-          device: 'webgpu',
-          dtype: 'fp16', // FP16 dla oszczędności pamięci i wydajności na mobile
-        });
-        log(`Model załadowany pomyślnie przez WebGPU`);
-      } catch (err: any) {
-        log(`WebGPU FAILED: ${err.message}. Fallback to WASM...`);
-        try {
-          this.instance = await pipeline('object-detection', this.modelId, {
-            progress_callback,
-            device: 'wasm',
-          });
-          log(`Model załadowany pomyślnie (WASM fallback)`);
-        } catch (wasmErr: any) {
-          log(`CRITICAL ERROR: ${wasmErr.message}`);
-          throw wasmErr;
-        }
-      }
+      this.instance = await ModelLoader.loadModelWithFallback(
+        this.modelId, 
+        'object-detection', 
+        { device: 'webgpu' },
+        progress_callback
+      );
     }
     return this.instance;
   }
 }
 
 self.onmessage = async (event: MessageEvent) => {
-  const { action, image, threshold } = event.data;
+  const { action, image, threshold, clearCache } = event.data;
 
   if (action === 'init') {
     try {
+      if (clearCache) {
+          env.useBrowserCache = false;
+      }
       await PipelineSingleton.getInstance((progress) => {
         self.postMessage({ status: 'progress', progress });
       });
@@ -60,36 +42,23 @@ self.onmessage = async (event: MessageEvent) => {
     try {
       const detector = await PipelineSingleton.getInstance();
       
-      // Image to ImageData conversion in worker
-      // Jeśli otrzymujemy ImageBitmap, musimy go wyrenderować na OffscreenCanvas
       const canvas = new OffscreenCanvas(image.width, image.height);
       const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error("OffscreenCanvas 2D context not available");
+      if (!ctx) throw new Error("Context 2D not available");
       ctx.drawImage(image, 0, 0);
       const imageData = ctx.getImageData(0, 0, image.width, image.height);
-      
       const rawImage = new RawImage(imageData.data, image.width, image.height, 4);
       
-      const startTime = performance.now();
       const results = await detector(rawImage, {
-        threshold: threshold || 0.25,
+        threshold: threshold || 0.3,
         percentage: true
       });
-      const inferenceTime = performance.now() - startTime;
-
-      // Zwalnianie ImageBitmap
+      
       if (image.close) image.close();
 
       self.postMessage({ 
         status: 'result', 
-        output: results.map((res: any) => ({
-            label: res.label,
-            score: res.score,
-            box: res.box
-        })),
-        metrics: {
-          inferenceTime
-        }
+        output: results
       });
       
     } catch (error: any) {
