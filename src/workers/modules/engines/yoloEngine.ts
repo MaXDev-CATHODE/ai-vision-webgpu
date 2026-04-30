@@ -22,7 +22,6 @@ export class YoloEngine implements IAIEngine {
             ];
 
             let response: Response | null = null;
-            let finalUrl = '';
 
             for (const url of potentialUrls) {
                 try {
@@ -33,7 +32,6 @@ export class YoloEngine implements IAIEngine {
                         const contentType = res.headers.get('content-type');
                         if (contentType && contentType.includes('text/html')) continue;
                         response = res;
-                        finalUrl = url;
                         break;
                     }
                 } catch (e) {
