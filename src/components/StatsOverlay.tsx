@@ -5,6 +5,7 @@ export const StatsOverlay: React.FC = () => {
   const fps = useVisionStore((state) => state.fps);
   const latency = useVisionStore((state) => state.latency);
   const detectedCount = useVisionStore((state) => state.detectedCount);
+  const inferenceTime = useVisionStore((state) => state.inferenceTime);
   const status = useVisionStore((state) => state.status);
   const isCameraActive = useVisionStore((state) => state.isCameraActive);
   const isHUDOnly = useVisionStore((state) => state.isHUDOnly);
@@ -42,6 +43,15 @@ export const StatsOverlay: React.FC = () => {
              <span className="text-white/40 uppercase">OBJ</span>
              <span className="text-sky-400">{detectedCount}</span>
            </div>
+           {inferenceTime > 0 && (
+             <>
+               <div className="w-[1px] h-3 bg-white/10" />
+               <div className="flex gap-1.5 items-center">
+                 <span className="text-white/40 uppercase text-fuchsia-400">GPU</span>
+                 <span className="text-fuchsia-300">{inferenceTime.toFixed(1)}ms</span>
+               </div>
+             </>
+           )}
         </div>
         <div className="flex items-center gap-1.5 px-2 py-0.5 bg-rose-500/10 border border-rose-500/20 rounded-md w-fit">
           <div className="w-1 h-1 bg-rose-500 rounded-full animate-pulse" />

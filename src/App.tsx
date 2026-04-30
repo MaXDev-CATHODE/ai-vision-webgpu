@@ -34,8 +34,9 @@ function App() {
       }
 
       if (status === 'ready') {
-        console.log('AI Engine: READY');
-        setStatus('ready');
+        const { features, device } = e.data;
+        console.log(`AI Engine: READY (${features} features on ${device})`);
+        setStatus(`GOTOWY (${features} cech, ${device})`);
         setProgress(100, 'Model AI gotowy');
       }
 

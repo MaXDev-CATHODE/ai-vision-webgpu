@@ -10,6 +10,10 @@ export default defineConfig({
   ],
   base: '/ai-vision-webgpu/',
   server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
     watch: {
       ignored: ['**/venv-yolo/**']
     }

@@ -4,7 +4,7 @@ export class AIWorkerManager {
   
   static getAIWorker(): Worker {
     if (!this.aiWorker) {
-      this.aiWorker = new Worker(new URL('../workers/ai.worker.ts', import.meta.url), { type: 'module' });
+      this.aiWorker = new Worker(new URL('../workers/ai.worker.v3.ts?v=' + Date.now(), import.meta.url), { type: 'module' });
     }
     return this.aiWorker;
   }

@@ -1,12 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useVisionStore } from '../store/useVisionStore';
-import { AIWorkerManager } from '../utils/aiWorkerManager';
-
-interface Detection {
-  label: string;
-  score: number;
-  box: { xmin: number; ymin: number; xmax: number; ymax: number };
-}
+import { useDetection } from '../hooks/useDetection';
 
 interface OverlayCanvasProps {
   videoElement: HTMLVideoElement | null;
@@ -14,182 +8,20 @@ interface OverlayCanvasProps {
 
 export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const aiWorkerRef = useRef<Worker | null>(null);
-  const scannerWorkerRef = useRef<Worker | null>(null);
-  const isProcessingRef = useRef(false);
-  
-  const [detections, setDetections] = useState<Detection[]>([]);
-  
-  const setStatus = useVisionStore((state) => state.setStatus);
-  const setProgress = useVisionStore((state) => state.setProgress);
+  const detections = useVisionStore((state) => state.detections);
+  const scanResults = useVisionStore((state) => state.scanResults);
   const isCameraActive = useVisionStore((state) => state.isCameraActive);
-  const confidenceThreshold = useVisionStore((state) => state.confidenceThreshold);
-  const setMetrics = useVisionStore((state) => state.setMetrics);
   const mode = useVisionStore((state) => state.mode);
-  const setScanResults = useVisionStore((state) => state.setScanResults);
 
-  const lastDetectionTimeRef = useRef<number>(0);
-  const frameStartTimeRef = useRef<number>(0);
-
-  // Inicjalizacja Workerów
-  useEffect(() => {
-    // Worker AI z manadżera (pre-loaded)
-    const aiWorker = AIWorkerManager.getAIWorker();
-    aiWorkerRef.current = aiWorker;
-
-    // Worker Skanera z manadżera (pre-loaded)
-    const scannerWorker = AIWorkerManager.getScannerWorker();
-    scannerWorkerRef.current = scannerWorker;
-
-    const handleAIWorkerMessage = (e: MessageEvent) => {
-      const { status, type, data, output, error } = e.data;
-      
-      // Mapowanie nowego protokołu (status) na stary (type) dla kompatybilności wstecznej UI
-      const messageType = status || type;
-      const messageData = output || data;
-
-      // Zawsze zwalniamy blokadę przy wynikach/błędach, niezależnie od trybu
-      if (messageType === 'result' || messageType === 'detect_result' || messageType === 'error' || status === 'error') {
-        isProcessingRef.current = false;
-      }
-
-      if (status === 'progress' || type === 'progress') {
-        setStatus('loading');
-        // ... (reszta logiki progress jest w App.tsx, tu możemy zostawić uproszczoną lub usunąć)
-      }
-
-      if (status === 'ready' || type === 'ready') {
-        setStatus('ready');
-        setProgress(100, 'Model AI gotowy');
-      }
-
-      // Przetwarzaj wyniki TYLKO jeśli jesteśmy w odpowiednim trybie
-      if ((messageType === 'result' || messageType === 'detect_result') && mode === 'ai') {
-        handleResult(messageData);
-      }
-      
-      if ((messageType === 'error' || status === 'error') && mode === 'ai') {
-        handleError(error || data);
-      }
-    };
-
-    const handleScannerWorkerMessage = (e: MessageEvent) => {
-      const { type, data } = e.data;
-      
-      if (type === 'scan_result' || type === 'error') {
-        isProcessingRef.current = false;
-      }
-
-      if (type === 'ready') {
-        setStatus('ready');
-      }
-
-      if (type === 'scan_result' && mode !== 'ai') {
-        handleResult(data);
-      }
-
-      if (type === 'error' && mode !== 'ai') {
-        handleError(data);
-      }
-    };
-
-    const handleResult = (data: any) => {
-      const now = performance.now();
-      const latency = Math.round(now - frameStartTimeRef.current);
-      const fps = lastDetectionTimeRef.current ? Math.round(1000 / (now - lastDetectionTimeRef.current)) : 0;
-
-      console.log(`[AI Result] Detected ${data.length} objects. Latency: ${latency}ms`);
-      setMetrics({ latency, fps, detectedCount: data.length });
-      lastDetectionTimeRef.current = now;
-
-      if (mode === 'ai') {
-        setDetections(data);
-      } else {
-        setScanResults(data);
-      }
-    };
-
-    const handleError = (err: any) => {
-      console.error('Błąd workera:', err);
-      setStatus('error', String(err));
-    };
-
-    // Nasłuchuj tylko na eventy
-    aiWorker.addEventListener('message', handleAIWorkerMessage);
-    scannerWorker.addEventListener('message', handleScannerWorkerMessage);
-
-    // Czyszczenie samych listenerów, NIE terminowanie workerów!
-    return () => {
-      aiWorker.removeEventListener('message', handleAIWorkerMessage);
-      scannerWorker.removeEventListener('message', handleScannerWorkerMessage);
-    };
-  }, [setStatus, setProgress, mode, setMetrics, setScanResults]);
-
-  // Reset flagi przy zmianie trybu, aby uniknąć blokady
-  useEffect(() => {
-    isProcessingRef.current = false;
-  }, [mode]);
-
-  // Pętla Przechwytywania Klatek (Frame Capture Loop)
-  useEffect(() => {
-    let animationFrameId: number;
-
-    const processFrame = () => {
-      if (!isCameraActive) {
-        setDetections([]);
-        return;
-      }
-
-      const activeWorker = mode === 'ai' ? aiWorkerRef.current : scannerWorkerRef.current;
-
-      if (videoElement && activeWorker && !isProcessingRef.current && videoElement.readyState === 4) {
-        const MAX_SIZE = 640;
-        const scale = Math.min(1, MAX_SIZE / Math.max(videoElement.videoWidth, videoElement.videoHeight));
-        const width = videoElement.videoWidth * scale;
-        const height = videoElement.videoHeight * scale;
-
-        isProcessingRef.current = true;
-        
-        createImageBitmap(videoElement, {
-          resizeWidth: width,
-          resizeHeight: height,
-          resizeQuality: 'low'
-        }).then(bitmap => {
-          if (activeWorker) {
-            frameStartTimeRef.current = performance.now();
-            if (mode === 'ai') {
-              activeWorker.postMessage({
-                action: 'detect',
-                image: bitmap, 
-                threshold: confidenceThreshold
-              }, [bitmap]);
-            } else {
-              activeWorker.postMessage({
-                type: 'scan',
-                data: { image: bitmap, mode: mode }
-              }, [bitmap]);
-            }
-          } else {
-            isProcessingRef.current = false;
-          }
-        }).catch(() => {
-          isProcessingRef.current = false;
-        });
-      }
-
-      animationFrameId = requestAnimationFrame(processFrame);
-    };
-
-    processFrame();
-
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [videoElement, isCameraActive, confidenceThreshold, mode]);
+  // Inicjalizacja pętli detekcji przez hook
+  useDetection(videoElement);
 
   // Renderowanie Ramek na Canvasie
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !videoElement) return;
 
+    // Dopasowanie rozmiaru canvasa do elementu wideo na ekranie
     canvas.width = videoElement.clientWidth;
     canvas.height = videoElement.clientHeight;
 
@@ -208,8 +40,9 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
     const vRatio = vWidth / vHeight;
     const cRatio = cWidth / cHeight;
 
-    let drawWidth, drawHeight, offsetX, offsetY;
+    let drawWidth: number, drawHeight: number, offsetX: number, offsetY: number;
 
+    // Obliczanie proporcji (letterbox/contain)
     if (cRatio > vRatio) {
       drawHeight = cHeight;
       drawWidth = cHeight * vRatio;
@@ -244,7 +77,6 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
         drawHUDBox(ctx, x, y, w, h, color, `${det.label} ${Math.round(det.score * 100)}%`, occupiedRects);
       });
     } else {
-      const scanResults = useVisionStore.getState().scanResults;
       scanResults.forEach(res => {
         const color = mode === 'qr' ? '#22c55e' : '#f59e0b';
         const inputScaleX = drawWidth / videoElement.videoWidth;
@@ -259,7 +91,7 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
       });
     }
 
-  }, [detections, videoElement, isCameraActive, mode]);
+  }, [detections, scanResults, videoElement, isCameraActive, mode]);
 
   const drawHUDBox = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string, labelText: string, occupiedRects: any[]) => {
     ctx.strokeStyle = color;
@@ -269,7 +101,7 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
     
     const cornerLen = Math.min(w, h, 20);
     
-    // Narożniki
+    // Narożniki (Styl Cyberpunk/Tech)
     ctx.beginPath();
     ctx.moveTo(x, y + cornerLen); ctx.lineTo(x, y); ctx.lineTo(x + cornerLen, y);
     ctx.moveTo(x + w - cornerLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cornerLen);
@@ -282,6 +114,7 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
     ctx.strokeRect(x, y, w, h);
     ctx.globalAlpha = 1.0;
 
+    // Label Rendering
     ctx.font = 'bold 11px "Outfit", system-ui, sans-serif';
     const metrics = ctx.measureText(labelText);
     const textWidth = metrics.width;
@@ -293,6 +126,7 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
     let labelY = y - labelHeight - 4;
     if (labelY < 0) labelY = y + 4;
 
+    // Unikanie nakładania się etykiet
     let attempts = 0;
     while (attempts < 5) {
       const collision = occupiedRects.some(r => {
