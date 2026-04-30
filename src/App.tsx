@@ -81,10 +81,6 @@ function App() {
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, [isFullscreen]);
 
-  const toggleCamera = useVisionStore((state) => state.toggleCamera);
-  const isCameraActive = useVisionStore((state) => state.isCameraActive);
-  const isFullscreen = useVisionStore((state) => state.isFullscreen);
-  const toggleFullscreen = useVisionStore((state) => state.toggleFullscreen);
 
   return (
     <div className={`min-h-screen bg-slate-900 text-slate-50 flex flex-col items-center p-4 md:p-8 ${isFullscreen ? 'p-0 overflow-hidden' : 'justify-center'}`}>
