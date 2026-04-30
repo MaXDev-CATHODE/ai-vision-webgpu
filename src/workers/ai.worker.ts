@@ -3,7 +3,7 @@ import { AutoModel, env, Tensor } from '@huggingface/transformers';
 // KONFIGURACJA
 env.allowLocalModels = true; 
 env.allowRemoteModels = false; 
-env.useBrowserCache = true; 
+env.useBrowserCache = false; 
 env.remotePathTemplate = '{model}/'; 
 
 const origin = self.location.origin;
@@ -37,7 +37,7 @@ class PipelineSingleton {
           progress_callback,
           device: device,
           // @ts-ignore
-          model_file: 'model.onnx',
+          model_file: 'yolov8n.onnx',
           // @ts-ignore
           quantized: false,
         });
