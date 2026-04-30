@@ -42,7 +42,8 @@ class PipelineSingleton {
           quantized: false,
         });
 
-        const output_shape = model.config.num_labels || (model.session?.outputs?.[0]?.dims?.[1]);
+        const modelAny = model as any;
+        const output_shape = modelAny.config?.num_labels || (modelAny.session?.outputs?.[0]?.dims?.[1]);
         this.instance = model;
         log(`Universal Model loaded on ${device}. Output size: ${output_shape}`);
         return { model, device, output_shape };
