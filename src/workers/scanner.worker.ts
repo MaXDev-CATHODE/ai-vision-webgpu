@@ -15,7 +15,25 @@ self.addEventListener('message', async (event) => {
     const { image, mode } = data;
     try {
       const results = await detectCodes(image, mode);
-      self.postMessage({ type: 'scan_result', data: results });
+      
+      // NORMALIZACJA WYNIKÓW (0-1)
+      // BarcodeDetector zwraca wyniki w pikselach przekazanego obrazu.
+      // Aby OverlayCanvas mógł je poprawnie narysować (niezależnie od rozmiaru bitmapy),
+      // musimy je sprowadzić do zakresu 0-1.
+      const normalizedResults = results.map(res => {
+        const { x, y, width, height } = res.boundingBox;
+        return {
+          ...res,
+          boundingBox: {
+            x: x / image.width,
+            y: y / image.height,
+            width: width / image.width,
+            height: height / image.height
+          }
+        };
+      });
+
+      self.postMessage({ type: 'scan_result', data: normalizedResults });
     } catch (err) {
       console.error('[ScannerWorker] Scan error:', err);
       self.postMessage({ type: 'error', data: String(err) });

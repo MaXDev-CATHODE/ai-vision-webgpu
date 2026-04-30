@@ -79,13 +79,10 @@ export const OverlayCanvas: React.FC<OverlayCanvasProps> = ({ videoElement }) =>
     } else {
       scanResults.forEach(res => {
         const color = mode === 'qr' ? '#22c55e' : '#f59e0b';
-        const inputScaleX = drawWidth / videoElement.videoWidth;
-        const inputScaleY = drawHeight / videoElement.videoHeight;
-
-        const x = res.boundingBox.x * inputScaleX + offsetX;
-        const y = res.boundingBox.y * inputScaleY + offsetY;
-        const w = res.boundingBox.width * inputScaleX;
-        const h = res.boundingBox.height * inputScaleY;
+        const x = res.boundingBox.x * drawWidth + offsetX;
+        const y = res.boundingBox.y * drawHeight + offsetY;
+        const w = res.boundingBox.width * drawWidth;
+        const h = res.boundingBox.height * drawHeight;
 
         drawHUDBox(ctx, x, y, w, h, color, `${res.format.toUpperCase()}: ${res.rawValue}`, occupiedRects);
       });
