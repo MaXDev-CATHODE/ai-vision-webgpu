@@ -18,11 +18,10 @@ export class AIWorkerManager {
   }
   
   static preloadModels() {
-    // To uruchomi wczytywanie wag do pamięci RAM/VRAM z wyprzedzeniem
     const ai = this.getAIWorker();
-    ai.postMessage({ action: 'init' });
+    ai.postMessage({ type: 'init', payload: { modelId: 'yolov11' } });
     
     const scanner = this.getScannerWorker();
-    scanner.postMessage({ action: 'init' });
+    scanner.postMessage({ type: 'init' });
   }
 }

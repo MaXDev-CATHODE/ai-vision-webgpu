@@ -1,7 +1,7 @@
 {
-  "model_type": "yolo_v11",
+  "model_type": "yolov8",
   "architectures": [
-    "YOLOv11ObjectDetection"
+    "YOLOv8ObjectDetection"
   ],
   "label2id": {
     "person": 0, "bicycle": 1, "car": 2, "motorcycle": 3, "airplane": 4, "bus": 5, "train": 6, "truck": 7, "boat": 8, "traffic light": 9,

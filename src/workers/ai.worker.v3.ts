@@ -1,66 +1,61 @@
-import { env, RawImage } from '@huggingface/transformers';
-import { ModelLoader } from './modules/modelLoader';
+import { YoloEngine } from './modules/engines/yoloEngine';
 
-// KONFIGURACJA ŚRODOWISKA PRZENIESIONA DO ModelLoader
+/**
+ * Menadżer Silnika AI
+ * Zarządza cyklem życia silników inferencyjnych.
+ */
+class EngineManager {
+  private static instance: YoloEngine | null = null;
+  private static currentModelId: string = '';
 
-class PipelineSingleton {
-  static modelId = 'onnx-community/yolov10n'; 
-  static instance: any = null;
-
-  static async getInstance(progress_callback?: (progress: any) => void) {
-    if (this.instance === null) {
-      this.instance = await ModelLoader.loadModelWithFallback(
-        this.modelId, 
-        'object-detection', 
-        { device: 'webgpu' },
-        progress_callback
-      );
+  static async getEngine(modelId: string, progress_callback?: (p: any) => void) {
+    if (this.instance && this.currentModelId === modelId) {
+      return this.instance;
     }
+
+    if (this.instance) {
+      await this.instance.dispose();
+    }
+
+    this.instance = new YoloEngine();
+    this.currentModelId = modelId;
+
+    // Inicjalizujemy silnik (który wewnętrznie użyje ModelLoader)
+    await this.instance.loadModel(modelId, progress_callback);
+    
     return this.instance;
   }
 }
 
-self.onmessage = async (event: MessageEvent) => {
-  const { action, image, threshold, clearCache } = event.data;
+// Obsługa komunikatów workera
+self.onmessage = async (e) => {
+  const { type, payload } = e.data;
 
-  if (action === 'init') {
+  if (type === 'init' || type === 'load') {
     try {
-      if (clearCache) {
-          env.useBrowserCache = false;
-      }
-      await PipelineSingleton.getInstance((progress) => {
-        self.postMessage({ status: 'progress', progress });
+      const modelId = payload?.modelId || 'yolov11';
+      await EngineManager.getEngine(modelId, (p) => {
+        // Przekazujemy progres bezpośrednio jako status
+        self.postMessage(p);
       });
-      self.postMessage({ status: 'ready' });
+      self.postMessage({ 
+        status: 'ready', 
+        features: 'Object Detection (YOLOv11)', 
+        device: 'WebGPU (Direct)' 
+      });
     } catch (error: any) {
       self.postMessage({ status: 'error', error: error.message });
     }
-    return;
   }
 
-  if (action === 'detect' && image) {
+  if (type === 'detect' || e.data.action === 'detect') {
     try {
-      const detector = await PipelineSingleton.getInstance();
+      const { image, threshold, modelId: mId } = payload || e.data;
+      const modelId = mId || 'yolov11';
+      const engine = await EngineManager.getEngine(modelId);
+      const results = await engine.detect(image, threshold);
       
-      const canvas = new OffscreenCanvas(image.width, image.height);
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error("Context 2D not available");
-      ctx.drawImage(image, 0, 0);
-      const imageData = ctx.getImageData(0, 0, image.width, image.height);
-      const rawImage = new RawImage(imageData.data, image.width, image.height, 4);
-      
-      const results = await detector(rawImage, {
-        threshold: threshold || 0.3,
-        percentage: true
-      });
-      
-      if (image.close) image.close();
-
-      self.postMessage({ 
-        status: 'result', 
-        output: results
-      });
-      
+      self.postMessage({ status: 'result', output: results });
     } catch (error: any) {
       self.postMessage({ status: 'error', error: error.message });
     }
