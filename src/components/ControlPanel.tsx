@@ -15,6 +15,11 @@ export const ControlPanel: React.FC = () => {
   const mode = useVisionStore((state) => state.mode);
   const setMode = useVisionStore((state) => state.setMode);
 
+  // Rozróżnienie „brak pliku" od „brak backendu" — wcześniej oba dostawały
+  // ten sam komunikat o brakującym model.onnx, co przy realnej awarii WebGPU
+  // wysyłało użytkownika szukać nieistniejącego problemu.
+  const isModelMissing = /Nie znaleziono modelu|404|Failed to fetch/i.test(errorMessage ?? '');
+
   return (
     <div className="w-full glass rounded-2xl p-6 flex flex-col gap-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-white/10 pb-4 gap-4">
@@ -26,8 +31,8 @@ export const ControlPanel: React.FC = () => {
         <div className="flex items-center gap-2">
           {status === 'idle' && <span className="px-3 py-1 bg-slate-700/50 text-slate-300 rounded-full text-xs font-mono border border-slate-600">INICJALIZACJA</span>}
           {status === 'loading' && <span className="px-3 py-1 bg-amber-500/20 text-amber-300 rounded-full text-xs font-mono border border-amber-500/30 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> ŁADOWANIE LOKALNE</span>}
-          {status === 'ready' && <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-full text-xs font-mono border border-emerald-500/30 flex items-center gap-1"><Cpu size={12} /> GOTOWY (LOKALNY + WEBGPU)</span>}
-          {status === 'error' && <span className="px-3 py-1 bg-rose-500/20 text-rose-300 rounded-full text-xs font-mono border border-rose-500/30 flex items-center gap-1"><AlertCircle size={12} /> BŁĄD MODELU</span>}
+          {status === 'ready' && <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-full text-xs font-mono border border-emerald-500/30 flex items-center gap-1"><Cpu size={12} /> GOTOWY</span>}
+          {status === 'error' && <span className="px-3 py-1 bg-rose-500/20 text-rose-300 rounded-full text-xs font-mono border border-rose-500/30 flex items-center gap-1"><AlertCircle size={12} /> BŁĄD SILNIKA</span>}
         </div>
       </div>
 
@@ -37,10 +42,21 @@ export const ControlPanel: React.FC = () => {
           <div className="flex items-start gap-2 text-rose-400">
             <AlertCircle size={16} className="mt-0.5 shrink-0" />
             <div className="space-y-1">
-              <p className="text-xs font-semibold uppercase text-rose-500">Wymagana Akcja (Błąd ładowania):</p>
+              <p className="text-xs font-semibold uppercase text-rose-500">
+                {isModelMissing ? 'Brak pliku modelu' : 'Nie udało się uruchomić silnika'}
+              </p>
               <p className="text-[11px] font-mono break-words leading-relaxed">
-                Upewnij się, że plik <b>model.onnx</b> znajduje się w folderze modelu.<br/>
-                <code className="bg-rose-500/10 px-1 py-0.5 rounded">Check developer console (F12) for paths</code>
+                {isModelMissing ? (
+                  <>
+                    Nie znaleziono <b>model.onnx</b> pod żadnym z adresów.
+                    Sprawdź, czy katalog <code className="bg-rose-500/10 px-1 py-0.5 rounded">public/models/yolov11/onnx/</code> istnieje w artefakcie builda.
+                  </>
+                ) : (
+                  <>
+                    Model został pobrany, ale przeglądarka nie udostępniła żadnego backendu inferencji.
+                    Wymagany jest WebGPU albo WebAssembly — sprawdź, czy przeglądarka nie blokuje akceleracji sprzętowej.
+                  </>
+                )}
               </p>
               <p className="text-[10px] opacity-70 italic mt-1">
                 Szczegóły: {errorMessage}

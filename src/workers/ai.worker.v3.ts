@@ -34,14 +34,17 @@ self.onmessage = async (e) => {
   if (type === 'init' || type === 'load') {
     try {
       const modelId = payload?.modelId || 'yolov11';
-      await EngineManager.getEngine(modelId, (p) => {
+      const engine = await EngineManager.getEngine(modelId, (p) => {
         // Przekazujemy progres bezpośrednio jako status
         self.postMessage(p);
       });
+      // Backend raportujemy z silnika, nie z założenia. Przy fallbacku
+      // do WASM UI pokazywało wcześniej „WebGPU (Direct)", co było
+      // nieprawdą i maskowało realny tryb pracy.
       self.postMessage({ 
         status: 'ready', 
         features: 'Object Detection (YOLOv11)', 
-        device: 'WebGPU (Direct)' 
+        device: engine.device === 'webgpu' ? 'WebGPU' : 'WASM (CPU)'
       });
     } catch (error: any) {
       self.postMessage({ status: 'error', error: error.message });

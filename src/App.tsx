@@ -35,9 +35,13 @@ function App() {
 
       if (status === 'ready') {
         const { features, device } = e.data;
-        console.log(`AI Engine: READY (${features} features on ${device})`);
-        setStatus(`GOTOWY (${features} cech, ${device})`);
-        setProgress(100, 'Model AI gotowy');
+        console.log(`AI Engine: READY (${features} on ${device})`);
+        // Status zostaje dosłownie `ready` — na tę wartość patrzy ControlPanel.
+        // Wcześniej wpisywaliśmy tu zdanie („GOTOWY (… cech, WebGPU)"), przez
+        // co porównanie `status === 'ready'` nigdy nie było prawdziwe i plakietka
+        // „GOTOWY" nie pojawiała się wcale. Backend i tak trafia do komunikatu.
+        setStatus('ready');
+        setProgress(100, `Model gotowy — backend: ${device}`);
       }
 
       if (status === 'error') {
@@ -91,7 +95,7 @@ function App() {
             <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-500">
               Real-Time AI Vision
             </h1>
-            <p className="text-slate-400 text-sm mt-1">100% Client-Side WebGPU Inference</p>
+            <p className="text-slate-400 text-sm mt-1">100% Client-Side Inference — WebGPU z fallbackiem WASM</p>
           </div>
           
           <button 
@@ -151,8 +155,8 @@ function App() {
               <p className="text-sm text-slate-400">Żadne klatki z kamery nie opuszczają Twojej przeglądarki.</p>
             </div>
             <div className="glass p-5 rounded-2xl">
-              <h3 className="font-semibold text-slate-200 mb-1">WebGPU / WebGL</h3>
-              <p className="text-sm text-slate-400">Akceleracja sprzętowa używająca Transformers.js.</p>
+              <h3 className="font-semibold text-slate-200 mb-1">WebGPU / WASM</h3>
+              <p className="text-sm text-slate-400">Akceleracja sprzętowa, a przy braku adaptera GPU — fallback do WebAssembly.</p>
             </div>
           </div>
         )}

@@ -2,11 +2,24 @@ import * as ort from 'onnxruntime-web';
 import { RawImage } from '@huggingface/transformers';
 import type { IAIEngine, DetectionResult } from './baseEngine';
 
-// Konfiguracja ONNX Runtime dla WebGPU
+// Konfiguracja ONNX Runtime.
+//
+// `numThreads = 1` jest wymuszone, nie optymalizacyjne: GitHub Pages nie
+// wysyła nagłówków COOP/COEP, więc `SharedArrayBuffer` nie istnieje i wersja
+// wielowątkowa nie wystartuje.
 ort.env.wasm.numThreads = 1;
+
+// Bez tego ORT szuka plików `.wasm`/`.mjs` względem bundla i dostaje 404.
+// Katalog `public/wasm/` jest kopiowany do artefaktu builda, więc ścieżka
+// musi uwzględniać `base` z vite.config.ts (`/ai-vision-webgpu/`).
+const BASE_URL = (import.meta as any).env.BASE_URL || '/';
+ort.env.wasm.wasmPaths = `${BASE_URL}wasm/`;
 
 export class YoloEngine implements IAIEngine {
     private session: ort.InferenceSession | null = null;
+    // Rzeczywisty backend, na którym powstała sesja. UI nie może zgadywać
+    // „WebGPU", bo przy fallbacku do WASM to nieprawda.
+    public device: 'webgpu' | 'wasm' | null = null;
 
     async loadModel(modelId: string, progress_callback?: (progress: any) => void): Promise<void> {
         try {
@@ -50,15 +63,42 @@ export class YoloEngine implements IAIEngine {
         }
     }
 
+    /**
+     * Tworzy sesję ONNX z jawnym fallbackiem WebGPU → WASM.
+     *
+     * Wcześniej było `executionProviders: ['webgpu']` bez planu B. Efekt:
+     * na każdej maszynie bez adaptera GPU (headless Chrome, starsza
+     * przeglądarka, blocklista sterowników, Linux bez flag) aplikacja
+     * wywalała się komunikatem „no available backend found" — mimo że
+     * model pobrał się poprawnie. WASM jest wolniejszy, ale działa wszędzie.
+     */
     private async initSession(arrayBuffer: ArrayBuffer, progress_callback?: (p: any) => void) {
-        if (progress_callback) progress_callback({ status: 'progress', progress: { progress: 95, file: 'model.onnx' } });
+        if (progress_callback) progress_callback({ status: 'progress', progress: { progress: 90, file: 'model.onnx' } });
 
-        this.session = await ort.InferenceSession.create(arrayBuffer, {
-            executionProviders: ['webgpu'],
-        });
+        const attempts: Array<'webgpu' | 'wasm'> = ['webgpu', 'wasm'];
+        let lastError: unknown = null;
 
-        if (progress_callback) progress_callback({ status: 'progress', progress: { progress: 100, file: 'model.onnx' } });
-        console.log(`[YoloEngine] Sesja ONNX gotowa.`);
+        for (const device of attempts) {
+            try {
+                this.session = await ort.InferenceSession.create(arrayBuffer, {
+                    executionProviders: [device],
+                });
+                this.device = device;
+                console.log(`[YoloEngine] Sesja ONNX gotowa (backend: ${device}).`);
+                if (progress_callback) {
+                    progress_callback({ status: 'progress', progress: { progress: 100, file: 'model.onnx' } });
+                }
+                return;
+            } catch (error) {
+                lastError = error;
+                console.warn(`[YoloEngine] Backend ${device} niedostępny:`, error);
+            }
+        }
+
+        throw new Error(
+            `Nie udało się utworzyć sesji ONNX na żadnym backendzie (webgpu, wasm). ` +
+            `Ostatni błąd: ${lastError instanceof Error ? lastError.message : String(lastError)}`
+        );
     }
 
     async detect(image: any, threshold: number): Promise<DetectionResult[]> {
