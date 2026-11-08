@@ -8,6 +8,7 @@ import { AIWorkerManager } from './utils/aiWorkerManager';
 function App() {
   const setStatus = useVisionStore((state) => state.setStatus);
   const setProgress = useVisionStore((state) => state.setProgress);
+  const setDevice = useVisionStore((state) => state.setDevice);
 
   useEffect(() => {
     // T004: Asynchroniczne pobieranie wag od razu po załadowaniu głównego komponentu
@@ -41,6 +42,7 @@ function App() {
         // co porównanie `status === 'ready'` nigdy nie było prawdziwe i plakietka
         // „GOTOWY" nie pojawiała się wcale. Backend i tak trafia do komunikatu.
         setStatus('ready');
+        setDevice(device ?? null);
         setProgress(100, `Model gotowy — backend: ${device}`);
       }
 
@@ -52,7 +54,7 @@ function App() {
 
     aiWorker.addEventListener('message', handleMessage);
     return () => aiWorker.removeEventListener('message', handleMessage);
-  }, [setStatus, setProgress]);
+  }, [setStatus, setProgress, setDevice]);
 
   const toggleCamera = useVisionStore((state) => state.toggleCamera);
   const isCameraActive = useVisionStore((state) => state.isCameraActive);
@@ -148,7 +150,7 @@ function App() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
             <div className="glass p-5 rounded-2xl">
               <h3 className="font-semibold text-slate-200 mb-1">0 Server Cost</h3>
-              <p className="text-sm text-slate-400">Model jest pobierany i odpalany na Twojej karcie graficznej.</p>
+              <p className="text-sm text-slate-400">Model jest pobierany i uruchamiany lokalnie — na GPU albo CPU, bez serwera inferencyjnego.</p>
             </div>
             <div className="glass p-5 rounded-2xl">
               <h3 className="font-semibold text-slate-200 mb-1">Prywatność 100%</h3>

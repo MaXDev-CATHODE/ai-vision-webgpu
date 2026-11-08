@@ -7,6 +7,7 @@ export const StatsOverlay: React.FC = () => {
   const detectedCount = useVisionStore((state) => state.detectedCount);
   const inferenceTime = useVisionStore((state) => state.inferenceTime);
   const status = useVisionStore((state) => state.status);
+  const device = useVisionStore((state) => state.device);
   const isCameraActive = useVisionStore((state) => state.isCameraActive);
   const isHUDOnly = useVisionStore((state) => state.isHUDOnly);
 
@@ -47,7 +48,9 @@ export const StatsOverlay: React.FC = () => {
              <>
                <div className="w-[1px] h-3 bg-white/10" />
                <div className="flex gap-1.5 items-center">
-                 <span className="text-white/40 uppercase text-fuchsia-400">GPU</span>
+                 <span className="text-white/40 uppercase text-fuchsia-400">
+                   {device === 'WebGPU' ? 'GPU' : 'CPU'}
+                 </span>
                  <span className="text-fuchsia-300">{inferenceTime.toFixed(1)}ms</span>
                </div>
              </>
@@ -100,10 +103,13 @@ export const StatsOverlay: React.FC = () => {
         </div>
       </div>
 
-      {/* Pulsing "Live" Indicator */}
+      {/* Pulsing "Live" Indicator — etykieta pokazuje realny backend sesji,
+          nie założenie. Przy fallbacku do WASM „WebGPU Live" byłoby nieprawdą. */}
       <div className="flex items-center gap-2 px-3 py-1 bg-rose-500/20 border border-rose-500/30 rounded-full w-fit">
         <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(244,63,94,0.8)]" />
-        <span className="text-[9px] uppercase tracking-widest font-black text-rose-400">WebGPU Live</span>
+        <span className="text-[9px] uppercase tracking-widest font-black text-rose-400">
+          {device === 'WebGPU' ? 'WebGPU Live' : device ? 'WASM Live' : 'Live'}
+        </span>
       </div>
     </div>
   );

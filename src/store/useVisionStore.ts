@@ -20,6 +20,10 @@ interface VisionState {
   progress: number;
   loadingMessage: string;
   errorMessage: string | null;
+  // Backend, na którym faktycznie powstała sesja ONNX. `null` do czasu
+  // odpowiedzi workera — UI nie może zgadywać „WebGPU", bo przy fallbacku
+  // do WASM plakietka kłamałaby o trybie pracy.
+  device: string | null;
   
   // Stan Kamery/Wejścia
   isCameraActive: boolean;
@@ -39,6 +43,7 @@ interface VisionState {
   // Akcje
   setStatus: (status: ModelStatus, errorMessage?: string | null) => void;
   setProgress: (progress: number, message?: string) => void;
+  setDevice: (device: string | null) => void;
   toggleCamera: () => void;
   setConfidenceThreshold: (threshold: number) => void;
   setMetrics: (metrics: { fps?: number; latency?: number; detectedCount?: number; inferenceTime?: number }) => void;
@@ -56,6 +61,7 @@ export const useVisionStore = create<VisionState>((set) => ({
   progress: 0,
   loadingMessage: '',
   errorMessage: null,
+  device: null,
   
   isCameraActive: false,
   confidenceThreshold: 0.3,
@@ -72,6 +78,7 @@ export const useVisionStore = create<VisionState>((set) => ({
   
   setStatus: (status, errorMessage = null) => set({ status, errorMessage }),
   setProgress: (progress, loadingMessage = '') => set({ progress, loadingMessage }),
+  setDevice: (device) => set({ device }),
 
   toggleCamera: () => set((state) => ({ isCameraActive: !state.isCameraActive })),
   setConfidenceThreshold: (confidenceThreshold) => set({ confidenceThreshold }),
